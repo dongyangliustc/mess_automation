@@ -1,0 +1,24 @@
+!***************************************************
+!               GLOBAL SECTION
+!***************************************************
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!
+!
+TemperatureList[K]                      {% for temp in temperature_list %}{{ temp|format_float(1) }}{% if not loop.last %} {% endif %}{% endfor %}
+
+PressureList[atm]                       {% for pres in pressure_list %}{{ pres|format_float(1) }}{% if not loop.last %} {% endif %}{% endfor %}
+!
+!
+EnergyStepOverTemperature               {{ energy_step_over_temperature }}         ! [Discretization energy step (global relax matrix)] / T                   
+ExcessEnergyOverTemperature             {{ excess_energy_over_temperature }}         ! [Highest barrier in the model (global relax matrix)] / T                      
+ModelEnergyLimit[kcal/mol]              {{ model_energy_limit }}        ! Highest reference energy used in the calculation ( or ReferenceEnergy[kcal/mol])
+!
+CalculationMethod                       {{ calculation_method }}     ! direct or low-eigenvalue                     
+!
+WellCutoff                              {{ well_cutoff }}         ! well truncation parameter : Max { dissociation limit (min barrier rel. to bottom of the well) / T }
+ChemicalEigenvalueMax                   {{ chemical_eigenvalue_max }}        ! Max chemical eigenvalue / Lowest Collision relaxation eigenvalue 
+!
+ReductionMethod                         {{ reduction_method }} ! [low eigenvalue method only] diagonalization or projection (default)
+!      
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

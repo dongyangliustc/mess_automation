@@ -1,0 +1,25 @@
+!***************************************************
+!               MODEL SECTION
+!***************************************************
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!
+!                          
+Model        
+!                                                           
+  EnergyRelaxation                                                      ! Default collisional energy relaxation kernel                              
+    Exponential                                                         ! Currently the only possible energy relaxation model              
+       Factor[1/cm]                     {{ energy_relaxation.factor }}                            ! (Delta_E_down)^(0) @ standard T (300 K)                          
+       Power                            {{ energy_relaxation.power }}                           ! Power n in the expression (Delta_E_down) = (Delta_E_down)^(0) (T/T0)^(n)
+       ExponentCutoff                   {{ energy_relaxation.exponent_cutoff }}                              ! if (Delta_E) / (Delta_E_down) > value  transition probability is zero      
+    End  
+!                                                               
+  CollisionFrequency                                                    ! Collision frequency model
+    LennardJones                                                        ! Currently the only possible collisional frequency model  based on LJ potential
+       Epsilons[K]                       {{ collision_frequency.epsilons[0] }}   {{ collision_frequency.epsilons[1] }}                 ! Epsilon_1 and Epsilon_2 He and 4-Hydroxystyrene         
+       Sigmas[angstrom]                  {{ collision_frequency.sigmas[0] }}    {{ collision_frequency.sigmas[1] }}                   ! Sigma_1 and Sigma_2 
+       Masses[amu]                       {{ collision_frequency.masses[0] }}   {{ collision_frequency.masses[1] }}               ! Masses of the buffer gas molecule and of the complex (check order)
+    End      
+!
+!*************************************************
+!
+!***************************************************

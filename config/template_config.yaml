@@ -1,0 +1,98 @@
+# MESS Automation Configuration File
+# All paths can be absolute or relative to this config file
+
+# Input/Output settings
+input:
+  # Gaussian output files (can be directory or list of files)
+  gaussian_outputs: "path/to/gaussian/outputs/*.out"
+  
+  # Alternatively, specify individual files
+  # files:
+  #   - "reactant.out"
+  #   - "ts1.out"
+  #   - "product.out"
+
+output:
+  # Generated MESS input file
+  mess_input: "mess_input.inp"
+  
+  # Log file for processing
+  log_file: "mess_automation.log"
+
+# Quantum chemistry settings
+quantum:
+  # Scaling factor for harmonic frequencies
+  frequency_scaling_factor: 0.971
+  
+  # Units for output (MESS uses specific units)
+  geometry_units: "angstrom"  # angstrom or bohr
+  frequency_units: "1/cm"     # wavenumbers
+  energy_units: "kcal/mol"    # MESS default
+  
+  # Electronic levels (multiplicity, energy)
+  default_electronic_levels:
+    - energy: 0.0
+      degeneracy: 1.0
+
+# MESS global section settings
+mess_global:
+  temperature_list: [200, 225, 250, 275, 300, 350, 400, 450, 500, 550, 600, 650, 700, 750, 800, 850, 900, 950, 1000]
+  pressure_list: [1.0]
+  energy_step_over_temperature: 0.2
+  excess_energy_over_temperature: 50
+  model_energy_limit: 400
+  calculation_method: "direct"
+  well_cutoff: 20
+  chemical_eigenvalue_max: 0.2
+  reduction_method: "diagonalization"
+  rate_output: "mess.out"
+  
+  # Collision model settings
+  energy_relaxation:
+    model: "Exponential"
+    factor: 350.0
+    power: 0.85
+    exponent_cutoff: 10
+  
+  collision_frequency:
+    model: "LennardJones"
+    epsilons: [10.0, 595.38]
+    sigmas: [2.55, 4.89]
+    masses: [4.0, 78.05]
+
+# Reaction network definition
+reaction_network:
+  # Define species types: reactant, well, product, barrier
+  species:
+    - name: "R"
+      type: "bimolecular"
+      gaussian_file: "reactant.out"
+      stoichiometry: "C8H9O4"
+      symmetry_factor: 0.5
+      ground_energy: 0.0
+    
+    - name: "TS1"
+      type: "barrier"
+      connects: ["R", "W-add1"]
+      gaussian_file: "ts1.out"
+      
+    - name: "W-add1"
+      type: "well"
+      gaussian_file: "well1.out"
+      symmetry_factor: 0.5
+
+# Processing options
+processing:
+  skip_unconverged: true
+  validate_frequencies: true
+  max_imaginary_frequencies: 1
+  create_backups: true
+  verbose: true
+
+# Template settings
+templates:
+  global_section: "templates/global_section.jinja2"
+  model_section: "templates/model_section.jinja2"
+  species_template: "templates/species.jinja2"
+  barrier_template: "templates/barrier.jinja2"
+  well_template: "templates/well.jinja2"

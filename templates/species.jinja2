@@ -1,0 +1,69 @@
+!************************************
+{% if species.type == "bimolecular" %}
+  Bimolecular		{{ species.name }}		# {{ species.comment }}
+{% elif species.type == "well" %}
+      Well     {{ species.name }}  			# {{ species.comment }}
+{% elif species.type == "RRHO" or species.method is defined and species.method == "RRHO" %}
+      Well     {{ species.name }}
+{% endif %}
+    Species
+      {{ species.method if species.method is defined else "RRHO" }}
+{% if species.type == "bimolecular" %}
+{% for fragment in species.fragments %}
+Fragment {{ fragment.name }}
+{{ fragment.method }}     
+{{ fragment.geometry_string }}
+{% if fragment.core_defined %}
+	Core 	{{ fragment.core_type }}
+		SymmetryFactor    {{ fragment.symmetry_factor }}
+	End
+{% endif %}
+    {{ fragment.frequencies_string }}
+{% if fragment.zero_point_energy is defined and fragment.zero_point_energy is not none %}
+  ZeroEnergy[kcal/mol]             {{ fragment.zero_point_energy }}
+{% endif %}
+{% if fragment.electronic_levels is defined and fragment.electronic_levels %}
+  ElectronicLevels[1/cm]                      {{ fragment.electronic_levels|length }}
+{% for level in fragment.electronic_levels %}
+  {{ level.energy }}   {{ level.degeneracy }}
+{% endfor %}
+{% endif %}
+End 
+{% endfor %}
+{% if species.ground_energy is defined and species.ground_energy is not none %}
+GroundEnergy[kcal/mol] {{ species.ground_energy }}
+{% endif %}
+{% else %}
+{% if species.geometry_string is defined %}{{ species.geometry_string }}{% endif %}
+{% if species.core_defined is defined and species.core_defined %}
+	Core 	{{ species.core_type }}
+		SymmetryFactor    {{ species.symmetry_factor if species.symmetry_factor is defined else 1.0 }}
+	End
+{% endif %}
+{% if species.frequencies_string is defined %}    {{ species.frequencies_string }}{% endif %}
+{% if species.atoms is defined and species.atoms and not (species.geometry_string is defined) %}
+      Geometry[angstrom]              {{ species.num_atoms }}
+{% for atom in species.atoms %}
+{{ atom.symbol }}                 {{ atom.x }}   {{ atom.y }}   {{ atom.z }}
+{% endfor %}
+{% endif %}
+{% if species.frequencies is defined and species.frequencies and not (species.frequencies_string is defined) %}
+      Frequencies[1/cm]     {{ species.frequencies|length }}
+{% for freq in species.frequencies %}
+      {{ freq }}
+{% endfor %}
+{% endif %}
+{% if species.total_energy is defined and species.total_energy is not none %}
+  ZeroEnergy[kcal/mol]             {{ "%.4f"|format(species.total_energy) }}
+{% elif species.zero_point_energy is defined and species.zero_point_energy is not none %}
+  ZeroEnergy[kcal/mol]             {{ "%.4f"|format(species.zero_point_energy) }}
+{% endif %}
+{% if species.electronic_levels is defined and species.electronic_levels %}
+  ElectronicLevels[1/cm]                      {{ species.electronic_levels|length }}
+{% for level in species.electronic_levels %}
+  {{ level.energy }}   {{ level.degeneracy }}
+{% endfor %}
+{% endif %}
+End
+{% endif %}
+!

@@ -1,0 +1,39 @@
+# Test Configuration for Unit Tests
+# Minimal configuration for testing MESS automation
+
+input:
+  files:
+    - "tests/data/example_gaussian.out"
+
+output:
+  mess_input: "test_output.inp"
+  log_file: "test.log"
+
+quantum:
+  frequency_scaling_factor: 0.971
+  geometry_units: "angstrom"
+  frequency_units: "1/cm"
+  energy_units: "kcal/mol"
+
+mess_global:
+  temperature_list: [300, 400, 500]
+  pressure_list: [1.0]
+  energy_step_over_temperature: 0.2
+  excess_energy_over_temperature: 50
+  model_energy_limit: 400
+  calculation_method: "direct"
+  well_cutoff: 20
+
+reaction_network:
+  species:
+    - name: "Molecule1"
+      type: "well"
+      gaussian_file: "tests/data/example_gaussian.out"
+      symmetry_factor: 1.0
+      ground_energy: 0.0
+
+processing:
+  skip_unconverged: false
+  validate_frequencies: true
+  create_backups: false
+  verbose: false

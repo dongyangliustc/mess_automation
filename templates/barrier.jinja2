@@ -1,0 +1,49 @@
+!************************************
+    Barrier   {{ barrier.name }}   {{ barrier.from_species }}   {{ barrier.to_species }}
+      {{ barrier.method if barrier.method is defined else "RRHO" }}
+{% if barrier.stoichiometry is defined and barrier.stoichiometry is not none %}
+      Stoichiometry  {{ barrier.stoichiometry }}
+{% endif %}
+{% if barrier.atoms is defined and barrier.atoms %}
+      Geometry[angstrom]              {{ barrier.num_atoms }}
+{% for atom in barrier.atoms %}
+{{ atom.symbol }}                 {{ atom.x }}   {{ atom.y }}   {{ atom.z }}
+{% endfor %}
+{% elif barrier.geometry_string is defined %}
+{{ barrier.geometry_string }}
+{% endif %}
+{% if barrier.core_defined is defined and barrier.core_defined %}
+      Core {{ barrier.core_type }}
+        SymmetryFactor    {{ barrier.symmetry_factor if barrier.symmetry_factor is defined else 1.0 }}
+      End
+{% endif %}
+{% if barrier.imaginary_frequency is defined and barrier.imaginary_frequency is not none %}
+      ImaginaryFrequency[1/cm]    {{ "%.4f"|format(barrier.imaginary_frequency) }}
+{% endif %}
+{% if barrier.frequencies_string is defined and barrier.frequencies_string %}
+      {{ barrier.frequencies_string }}
+{% elif barrier.real_frequencies is defined and barrier.real_frequencies %}
+      Frequencies[1/cm]     {{ barrier.real_frequencies|length }}
+{% for freq in barrier.real_frequencies %}
+      {{ freq }}
+{% endfor %}
+{% endif %}
+{% if barrier.electronic_levels is defined and barrier.electronic_levels %}
+      ElectronicLevels[1/cm]       {{ barrier.electronic_levels|length }}
+{% for level in barrier.electronic_levels %}
+        {{ "%.1f"|format(level.energy) }}   {{ "%.1f"|format(level.degeneracy) }}
+{% endfor %}
+{% endif %}
+{% if barrier.total_energy is defined and barrier.total_energy is not none %}
+      ZeroEnergy[kcal/mol]        {{ "%.4f"|format(barrier.total_energy) }}
+{% elif barrier.zero_point_energy is defined and barrier.zero_point_energy is not none %}
+      ZeroEnergy[kcal/mol]        {{ "%.4f"|format(barrier.zero_point_energy) }}
+{% endif %}
+{% if barrier.forward_barrier is defined and barrier.forward_barrier is not none %}
+      WellDepth[kcal/mol]         {{ "%.2f"|format(barrier.forward_barrier) }}
+{% endif %}
+{% if barrier.reverse_barrier is defined and barrier.reverse_barrier is not none %}
+      WellDepth[kcal/mol]         {{ "%.2f"|format(barrier.reverse_barrier) }}
+{% endif %}
+    End
+!
