@@ -36,13 +36,13 @@ reaction_network:
       type: "well"
       gaussian_file: "examples/example_data/reactant.out"
       symmetry_factor: 0.5
-      ground_energy: 0.0
+      EleEnergy: -0.21962       # ← Hartree，电子能量
     
     - name: "TS"
       type: "barrier"
       gaussian_file: "examples/example_data/ts.out"
       symmetry_factor: 0.5
-      zero_energy: 10.0
+      EleEnergy: -0.178796717
       from_species: "R"
       to_species: "P"
     
@@ -50,7 +50,7 @@ reaction_network:
       type: "well"
       gaussian_file: "examples/example_data/product.out"
       symmetry_factor: 0.5
-      ground_energy: -10.0 
+      EleEnergy: -0.186429872
 
 # Processing options
 processing:

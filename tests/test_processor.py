@@ -418,7 +418,7 @@ class TestCreateMoleculeObject:
         assert molecule["scf_energy"] == -100.0
         assert molecule["zero_point_energy"] == 10.0
         assert molecule["symmetry_factor"] == 2.0
-        assert molecule["ground_energy"] == 5.0
+        assert molecule["GroundEnergy"] == 5.0
         assert molecule["multiplicity"] == 1
         assert molecule["charge"] == 0
     

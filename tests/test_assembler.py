@@ -242,7 +242,7 @@ class TestMESSAssembler:
             "zero_point_energy": 10.0,
             "total_energy": 500.0,
             "symmetry_factor": 2.0,
-            "ground_energy": 0.0,
+            "GroundEnergy": 0.0,
             "multiplicity": 1,
             "charge": 0,
             "convergence_status": True,
@@ -286,7 +286,7 @@ class TestMESSAssembler:
             "zero_point_energy": 4.0,
             "total_energy": 505.0,
             "symmetry_factor": 0.5,
-            "ground_energy": 10.0,
+            "GroundEnergy": 10.0,
             "forward_barrier": 5.0,
             "reverse_barrier": 15.0,
             "multiplicity": 1,
@@ -380,7 +380,7 @@ class TestMESSAssembler:
                 "num_frequencies": 2,
                 "total_energy": 500.0,
                 "symmetry_factor": 2.0,
-                "ground_energy": 0.0,
+                "GroundEnergy": 0.0,
                 "comment": "",
             }
         }

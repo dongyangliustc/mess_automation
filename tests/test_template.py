@@ -48,7 +48,7 @@ class TestTemplateRendering:
             "num_frequencies": 3,
             "total_energy": 500.0,
             "symmetry_factor": 2.0,
-            "ground_energy": 0.0,
+            "GroundEnergy": 0.0,
             "comment": "",
         }
         
@@ -78,7 +78,7 @@ class TestTemplateRendering:
             "num_frequencies": 1,
             "zero_point_energy": 10.0,  # Only ZPE, no total_energy
             "symmetry_factor": 1.0,
-            "ground_energy": 0.0,
+            "GroundEnergy": 0.0,
             "comment": "",
         }
         
@@ -103,7 +103,7 @@ class TestTemplateRendering:
             "num_frequencies": 1,
             # No energy fields
             "symmetry_factor": 1.0,
-            "ground_energy": 0.0,
+            "GroundEnergy": 0.0,
             "comment": "",
         }
         
@@ -134,7 +134,7 @@ class TestTemplateRendering:
             "num_imaginary": 1,
             "total_energy": 505.0,
             "symmetry_factor": 0.5,
-            "ground_energy": 10.0,
+            "GroundEnergy": 10.0,
             "forward_barrier": 5.0,
             "reverse_barrier": 15.0,
             "electronic_levels": [
@@ -175,7 +175,7 @@ class TestTemplateRendering:
             "num_imaginary": 1,
             "total_energy": 505.0,
             "symmetry_factor": 0.5,
-            "ground_energy": 10.0,
+            "GroundEnergy": 10.0,
             # No forward_barrier or reverse_barrier
             "electronic_levels": [
                 {"energy": 0.0, "degeneracy": 1.0}
@@ -270,7 +270,7 @@ class TestTemplateRendering:
             "num_frequencies": 1,
             "total_energy": 100.0,
             "symmetry_factor": 1.0,
-            "ground_energy": 0.0,
+            "GroundEnergy": 0.0,
             "method": "RRHO",
         }
         

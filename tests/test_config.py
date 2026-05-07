@@ -207,7 +207,7 @@ class TestConfigClass:
                         "type": "well",
                         "gaussian_file": "r.out",
                         "symmetry_factor": 2.0,
-                        "ground_energy": 0.0
+                        "GroundEnergy": 0.0
                     }
                 ]
             },
@@ -247,7 +247,7 @@ class TestConfigClass:
         assert species["type"] == "well"
         assert species["gaussian_file"] == "r.out"
         assert species["symmetry_factor"] == 2.0
-        assert species["ground_energy"] == 0.0
+        assert species["GroundEnergy"] == 0.0
     
     def test_config_default_values(self):
         """Test Config default values."""

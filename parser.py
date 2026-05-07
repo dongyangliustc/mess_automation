@@ -66,7 +66,7 @@ class QuantumData:
     
     # Energy data
     scf_energy: Optional[float] = None  # Hartree
-    zero_point_energy: Optional[float] = None  # kcal/mol (converted from Hartree)
+    zero_point_energy: Optional[float] = None  # Hartree
     thermal_correction: Optional[float] = None  # kcal/mol
     enthalpy: Optional[float] = None  # kcal/mol
     gibbs_free_energy: Optional[float] = None  # kcal/mol
@@ -162,7 +162,7 @@ class GaussianParser:
             r'^\s*SCF Done:\s+E\([^)]+\)\s*=\s*([-\d\.]+)\s*'
         )
         self.zpe_pattern = re.compile(
-            r'^\s*Zero-point vibrational energy\s*[=:]\s*([-\d\.]+)'
+             r'^\s*Zero-point correction=\s*([\d\.]+)\s*\(Hartree/Particle\)'
         )
         self.thermal_pattern = re.compile(
             r'^\s*Thermal correction to Energy\s*[=:]\s*([-\d\.]+)'
@@ -367,7 +367,7 @@ class GaussianParser:
             if match:
                 try:
                     zpe_hartree = float(match.group(1))
-                    energies['zpe'] = zpe_hartree * self.HARTREE_TO_KCAL_MOL
+                    energies['zpe'] = zpe_hartree
                 except ValueError:
                     pass
             

@@ -79,7 +79,7 @@ class TestIntegrationParserProcessor:
         assert molecule["frequencies"] == result.scaled_frequencies
         assert molecule["total_energy"] == result.total_energy
         assert molecule["symmetry_factor"] == 3.0
-        assert molecule["ground_energy"] == 0.0
+        assert molecule["GroundEnergy"] == 0.0
 
 
 class TestIntegrationProcessorAssembler:
@@ -103,7 +103,7 @@ class TestIntegrationProcessorAssembler:
             "num_frequencies": 3,
             "total_energy": 500.0,
             "symmetry_factor": 2.0,
-            "ground_energy": 0.0,
+            "GroundEnergy": 0.0,
             "multiplicity": 1,
             "charge": 0,
             "convergence_status": True,
@@ -142,7 +142,7 @@ class TestIntegrationProcessorAssembler:
             "num_imaginary": 1,
             "total_energy": 505.0,
             "symmetry_factor": 0.5,
-            "ground_energy": 10.0,
+            "GroundEnergy": 10.0,
             "forward_barrier": 5.0,
             "reverse_barrier": 15.0,
             "multiplicity": 1,
@@ -202,7 +202,7 @@ class TestEndToEndWorkflow:
                         "type": "well",
                         "gaussian_file": example_file,
                         "symmetry_factor": 3.0,
-                        "ground_energy": 0.0
+                        "GroundEnergy": 0.0
                     }
                 ]
             },
@@ -260,7 +260,7 @@ class TestEndToEndWorkflow:
                             name=species_def["name"],
                             species_type=species_def["type"],
                             symmetry_factor=species_def.get("symmetry_factor", 1.0),
-                            ground_energy=species_def.get("ground_energy", 0.0)
+                            ground_energy=species_def.get("GroundEnergy", 0.0)
                         )
                         molecule_objects[species_def["name"]] = molecule
                 
@@ -283,7 +283,7 @@ class TestEndToEndWorkflow:
                         species_type=species_def["type"],
                         gaussian_file=species_def["gaussian_file"],
                         symmetry_factor=species_def.get("symmetry_factor", 1.0),
-                        ground_energy=species_def.get("ground_energy", 0.0)
+                        ground_energy=species_def.get("GroundEnergy", 0.0)
                     )
                     species_list.append(species)
                 
@@ -339,7 +339,7 @@ class TestEndToEndWorkflow:
                         "type": "well",
                         "gaussian_file": "tests/data/example_gaussian.out",
                         "symmetry_factor": 2.0,
-                        "ground_energy": 0.0
+                        "GroundEnergy": 0.0
                     },
                     {
                         "name": "TS",
@@ -354,7 +354,7 @@ class TestEndToEndWorkflow:
                         "type": "well",
                         "gaussian_file": "tests/data/example_gaussian.out",  # Same file
                         "symmetry_factor": 2.0,
-                        "ground_energy": -5.0
+                        "GroundEnergy": -5.0
                     }
                 ]
             }

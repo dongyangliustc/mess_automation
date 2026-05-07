@@ -145,31 +145,156 @@ def process_gaussian_file(
     return {"qdata": qdata, "correction": result}
 
 
-def find_quantum_data(file_key: str) -> Optional[Dict[str, Any]]:
+def create_species_and_barriers(
+        config: Dict[str, Any],
+        quantum_results: Dict[str, Dict[str, Any]]
+) -> tuple[Dict[str, MESSSpeciesConfig], Dict[str, MESSBarrierConfig]]:
     """
-    Look up processed quantum data by file path in the module-level cache.
+    创建物种和能垒配置，自动计算 ZeroEnergy [kcal/mol]。
 
-    Args:
-        file_key: Original file path used as key (exact or normalised match).
-
-    Returns:
-        Data dict or ``None`` if not found.
+    ZeroEnergy = YAML 中的 EleEnergy [Hartree] + scaled_ZPE [Hartree]
+    其中 scaled_ZPE = 原始 ZPE × 全局 ZPE 缩放因子
+    最后乘以 627.509474 转换为 kcal/mol。
     """
-    # Exact match
-    if file_key in processed_files:
-        return processed_files[file_key]
+    network_config = config.get("reaction_network", {})
+    species_list = network_config.get("species", [])
+    quantum_cfg = config.get("quantum", {})
 
-    # Try normalised path comparison
-    try:
-        target = Path(file_key).resolve()
-        for key, data in processed_files.items():
-            if Path(key).resolve() == target:
+    # ---------- 读取全局 ZPE 缩放因子 ----------
+    zpe_factor = quantum_cfg.get("zpe_scaling_factor",
+                                 quantum_cfg.get("frequency_scaling_factor", 1.0))
+
+    HARTREE_TO_KCAL = 627.509474
+
+    species_configs = {}
+    barrier_configs = {}
+
+    # ---------- 辅助：根据文件名查找量子数据 ----------
+    def find_quantum_data(file_key: str) -> Optional[Dict[str, Any]]:
+        if file_key in quantum_results:
+            return quantum_results[file_key]
+        for key, data in quantum_results.items():
+            if Path(key).name == file_key:
                 return data
-    except Exception:
-        pass
+        for key, data in quantum_results.items():
+            if Path(key).stem == Path(file_key).stem:
+                return data
+        return None
 
-    return None
+    # ---------- 辅助：提取原始 ZPE（Hartree） ----------
+    def extract_raw_zpe(qdata_dict: dict) -> Optional[float]:
+        """
+        尝试从 QuantumData 或 CorrectionResult 中获取原始零点能 (Hartree)。
+        返回 None 表示找不到。
+        """
+        qdata = qdata_dict.get("qdata")
+        if qdata is not None and qdata.zero_point_energy is not None:
+            return qdata.zero_point_energy
+        # 可选：如果在 correction 中也存了原始 ZPE，可作为备用
+        correction = qdata_dict.get("correction")
+        if correction is not None:
+            for attr in ("raw_zpe", "original_zpe", "zpe"):
+                val = getattr(correction, attr, None)
+                if val is not None:
+                    return val
+        return None
 
+    # ---------- 核心：计算 ZeroEnergy ----------
+    def compute_zero_energy(species_def: dict, qdata_dict: dict) -> float:
+        """
+        从 YAML 的 EleEnergy 和量子数据计算 ZeroEnergy (kcal/mol)。
+        """
+        ele_energy = species_def.get("EleEnergy")
+        if ele_energy is None:
+            logger.error(
+                f"Species/Barrier '{species_def.get('name')}' missing 'EleEnergy' in YAML. "
+                "Setting ZeroEnergy to 0.0 kcal/mol."
+            )
+            return 0.0
+
+        # 提取原始 ZPE（Hartree）
+        raw_zpe = extract_raw_zpe(qdata_dict)
+        if raw_zpe is None:
+            logger.warning(
+                f"Cannot find ZPE in quantum data for '{species_def.get('name')}'. "
+                "ZeroEnergy = EleEnergy only (no ZPE added)."
+            )
+            total_hartree = ele_energy
+        else:
+            scaled_zpe = raw_zpe * zpe_factor
+            total_hartree = ele_energy + scaled_zpe
+            logger.info(
+                f"  {species_def.get('name')}: EleEnergy={ele_energy:.8f} Ha, "
+                f"raw_zpe={raw_zpe:.8f} Ha, scaled_zpe={scaled_zpe:.8f} Ha → "
+                f"ZeroEnergy={total_hartree * HARTREE_TO_KCAL:.6f} kcal/mol"
+            )
+
+        zero_energy_kcal = total_hartree * HARTREE_TO_KCAL
+        return zero_energy_kcal
+
+    # ---------- 处理所有条目 ----------
+    for species_def in species_list:
+        name = species_def.get("name")
+        species_type = species_def.get("type", "well")
+        gaussian_file = species_def.get("gaussian_file")
+        if not name or not gaussian_file:
+            continue
+
+        qdata_dict = find_quantum_data(gaussian_file)
+        if qdata_dict is None:
+            logger.warning(f"No quantum data found for {gaussian_file} (species: {name})")
+            continue
+
+        # 计算 ZeroEnergy
+        zero_energy = compute_zero_energy(species_def, qdata_dict)
+
+        # 兼容手动覆盖：如果 YAML 显式给出了 GroundEnergy，则优先使用
+        if species_def.get("GroundEnergy") is not None:
+            logger.info(f"  {name}: using manual GroundEnergy={species_def['GroundEnergy']} kcal/mol")
+            zero_energy = species_def["GroundEnergy"]
+
+        if species_type == "barrier" and species_def.get("from_species") and species_def.get("to_species"):
+            # ---- 能垒 ----
+            barrier_config = MESSBarrierConfig(
+                name=name,
+                from_species=species_def.get("from_species"),
+                to_species=species_def.get("to_species"),
+                quantum_data=qdata_dict["qdata"],
+                correction=qdata_dict["correction"],
+                ZeroEnergy=zero_energy,  # 注意大写 Z
+                stoichiometry=species_def.get("stoichiometry"),
+                symmetry_factor=species_def.get("symmetry_factor", 1.0),
+                comment=species_def.get("comment", ""),
+                method=species_def.get("method", "RRHO"),
+                core_type=species_def.get("core_type", "RigidRotor"),
+                electronic_levels=species_def.get("electronic_levels", [{"energy": 0.0, "degeneracy": 1.0}]),
+                is_bimolecular=species_def.get("is_bimolecular", False),
+                potential_prefactor=species_def.get("potential_prefactor"),
+                potential_power_exponent=species_def.get("potential_power_exponent"),
+            )
+            barrier_configs[name] = barrier_config
+            logger.info(
+                f"Created barrier {name} ({species_def.get('from_species')} -> {species_def.get('to_species')})")
+        else:
+            # ---- 物种 ----
+            species_config = MESSSpeciesConfig(
+                name=name,
+                type=species_type,
+                quantum_data=qdata_dict["qdata"],
+                correction=qdata_dict["correction"],
+                ZeroEnergy=zero_energy,
+                stoichiometry=species_def.get("stoichiometry"),
+                symmetry_factor=species_def.get("symmetry_factor", 1.0),
+                comment=species_def.get("comment", ""),
+                method=species_def.get("method", "RRHO"),
+                core_type=species_def.get("core_type", "RigidRotor"),
+                electronic_levels=species_def.get("electronic_levels", [{"energy": 0.0, "degeneracy": 1.0}]),
+            )
+            species_configs[name] = species_config
+            logger.info(f"Created species {name} ({species_type})")
+
+    logger.info(f"Created {len(species_configs)} species and {len(barrier_configs)} barriers")
+    return species_configs, barrier_configs
 
 def parse_arguments() -> argparse.Namespace:
     """
@@ -420,164 +545,7 @@ def process_quantum_data(
     return results
 
 
-def create_species_and_barriers(
-    config: Dict[str, Any],
-    quantum_results: Dict[str, Dict[str, Any]]
-) -> tuple[Dict[str, MESSSpeciesConfig], Dict[str, MESSBarrierConfig]]:
-    """
-    Create species and barrier configurations from processed data.
-    
-    Args:
-        config: Configuration dictionary
-        quantum_results: Processed quantum data
-        
-    Returns:
-        Tuple of (species_dict, barriers_dict)
-    """
-    network_config = config.get("reaction_network", {})
-    species_list = network_config.get("species", [])
-    
-    species_configs = {}
-    barrier_configs = {}
-    
-    # Helper to find quantum data by filename
-    def find_quantum_data(file_key: str) -> Optional[Dict[str, Any]]:
-        # Try exact match first
-        if file_key in quantum_results:
-            return quantum_results[file_key]
-        
-        # Try partial match
-        for key, data in quantum_results.items():
-            if Path(key).name == file_key:
-                return data
-        
-        # Try without extension
-        for key, data in quantum_results.items():
-            if Path(key).stem == Path(file_key).stem:
-                return data
-        
-        return None
-    
-    # Process species - separate into wells and barriers
-    for species_def in species_list:
-        name = species_def.get("name")
-        species_type = species_def.get("type", "well")
-        gaussian_file = species_def.get("gaussian_file")
-        from_species = species_def.get("from_species")
-        to_species = species_def.get("to_species")
-        
-        if not name or not gaussian_file:
-            logger.warning(f"Incomplete species definition: {species_def}")
-            continue
-        
-        # Find corresponding quantum data
-        quantum_data = find_quantum_data(gaussian_file)
-        if not quantum_data:
-            logger.warning(f"No quantum data found for {gaussian_file} (species: {name})")
-            continue
-        
-        # If it's a barrier with from/to species, create a barrier config
-        if species_type == "barrier" and from_species and to_species:
-            # Create barrier configuration
-            barrier_config = MESSBarrierConfig(
-                name=name,
-                from_species=from_species,
-                to_species=to_species,
-                quantum_data=quantum_data["qdata"],
-                correction=quantum_data["correction"],
-                stoichiometry=species_def.get("stoichiometry"),
-                symmetry_factor=species_def.get("symmetry_factor", 1.0),
-                comment=species_def.get("comment", ""),
-                method=species_def.get("method", "RRHO"),
-                core_type=species_def.get("core_type", "RigidRotor"),
-                electronic_levels=species_def.get("electronic_levels", [
-                    {"energy": 0.0, "degeneracy": 1.0}
-                ]),
-                is_bimolecular=species_def.get("is_bimolecular", False),
-                potential_prefactor=species_def.get("potential_prefactor"),
-                potential_power_exponent=species_def.get("potential_power_exponent"),
-                # Calculate barrier depths if energies are available
-                forward_barrier=None,
-                reverse_barrier=None
-            )
-            
-            barrier_configs[name] = barrier_config
-            logger.info(f"Created barrier {name} ({from_species} -> {to_species}) from {gaussian_file}")
-        else:
-            # Create species configuration (well or other non-barrier)
-            species_config = MESSSpeciesConfig(
-                name=name,
-                type=species_type,
-                quantum_data=quantum_data["qdata"],
-                correction=quantum_data["correction"],
-                stoichiometry=species_def.get("stoichiometry"),
-                symmetry_factor=species_def.get("symmetry_factor", 1.0),
-                ground_energy=species_def.get("ground_energy", 0.0),
-                comment=species_def.get("comment", ""),
-                method=species_def.get("method", "RRHO"),
-                core_type=species_def.get("core_type", "RigidRotor"),
-                electronic_levels=species_def.get("electronic_levels", [
-                    {"energy": 0.0, "degeneracy": 1.0}
-                ])
-            )
-            
-            species_configs[name] = species_config
-            logger.info(f"Created species {name} ({species_type}) from {gaussian_file}")
-    
-    # Process barriers (simplified - in real implementation, this would be more complex)
-    # For now, we'll assume barriers are defined similarly to species
-    barrier_defs = network_config.get("barriers", [])
-    
-    for barrier_def in barrier_defs:
-        name = barrier_def.get("name")
-        from_species = barrier_def.get("from_species")
-        to_species = barrier_def.get("to_species")
-        gaussian_file = barrier_def.get("gaussian_file")
-        
-        if not all([name, from_species, to_species, gaussian_file]):
-            logger.warning(f"Incomplete barrier definition: {barrier_def}")
-            continue
-        
-        # Find corresponding quantum data
-        quantum_data = find_quantum_data(gaussian_file)
-        if not quantum_data:
-            logger.warning(f"No quantum data found for {gaussian_file} (barrier: {name})")
-            continue
-        
-        # Check if from/to species exist
-        if from_species not in species_configs:
-            logger.warning(f"From species {from_species} not found for barrier {name}")
-            continue
-        
-        if to_species not in species_configs:
-            logger.warning(f"To species {to_species} not found for barrier {name}")
-            continue
-        
-        # Create barrier configuration
-        barrier_config = MESSBarrierConfig(
-            name=name,
-            from_species=from_species,
-            to_species=to_species,
-            quantum_data=quantum_data["qdata"],
-            correction=quantum_data["correction"],
-            stoichiometry=barrier_def.get("stoichiometry"),
-            symmetry_factor=barrier_def.get("symmetry_factor", 1.0),
-            comment=barrier_def.get("comment", ""),
-            method=barrier_def.get("method", "RRHO"),
-            core_type=barrier_def.get("core_type", "RigidRotor"),
-            electronic_levels=barrier_def.get("electronic_levels", [
-                {"energy": 0.0, "degeneracy": 1.0}
-            ]),
-            is_bimolecular=barrier_def.get("is_bimolecular", False),
-            potential_prefactor=barrier_def.get("potential_prefactor"),
-            potential_power_exponent=barrier_def.get("potential_power_exponent")
-        )
-        
-        barrier_configs[name] = barrier_config
-        logger.info(f"Created barrier {name} ({from_species} -> {to_species}) from {gaussian_file}")
-    
-    logger.info(f"Created {len(species_configs)} species and {len(barrier_configs)} barriers")
-    return species_configs, barrier_configs
+
 
 
 def parse_config_file(config_path: Union[str, Path]) -> Optional[Dict[str, Any]]:

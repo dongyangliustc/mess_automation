@@ -208,7 +208,7 @@ ReductionMethod {reduction_method}"""
 {frequencies}
   ElectronicLevels[1/cm] {num_levels}
 {electronic_levels}
-  ZeroEnergy[kcal/mol] {zero_energy}"""
+  ZeroEnergy[kcal/mol] {ZeroEnergy}"""
             },
             "barrier": {
                 "name": "minimal_barrier",

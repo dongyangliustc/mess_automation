@@ -109,17 +109,15 @@ class CorrectionResult:
             
             # Find its position in the original list
             imag_idx = self.original_data.frequencies.index(original_imag)
-            
+
             # Create real frequencies list: all scaled frequencies except the imaginary one
-            # We need to skip the imaginary frequency regardless of how it's handled
+            # Only skip the imaginary frequency position (use precise index, not value check)
             self.real_frequencies = []
             for i, scaled_freq in enumerate(self.scaled_frequencies):
                 if i == imag_idx:
                     # This is the imaginary frequency position, skip it
                     continue
-                # Only include non-negative frequencies in real_frequencies
-                if scaled_freq >= 0:
-                    self.real_frequencies.append(scaled_freq)
+                self.real_frequencies.append(scaled_freq)
             
             logger.debug(f"Extracted scaled imaginary frequency: {self.imaginary_frequency:.2f} cm^-1 (scaling factor: {self.scaling_factor})")
             logger.debug(f"Real frequencies count: {len(self.real_frequencies)} (original had {len(self.original_data.frequencies)})")
@@ -247,20 +245,13 @@ class FrequencyCorrector:
         # Validate scaling factor
         if scaling_factor <= 0:
             raise ScalingFactorError(scaling_factor)
-        
+
         # Validate input if requested
         if self.validate_input:
             validation_errors = self._validate_input(qdata)
             if validation_errors:
                 error_msg = "; ".join(validation_errors)
-                logger.error(f"Input validation failed: {validation_errors}")
-                return CorrectionResult(
-                    original_data=qdata,
-                    scaled_frequencies=[],
-                    scaling_factor=scaling_factor,
-                    success=False,
-                    error_message=f"Validation failed: {error_msg}"
-                )
+                logger.warning(f"Input validation warnings (proceeding with scaling anyway): {error_msg}")
         
         # Apply scaling to frequencies
         scaled_freqs = self._apply_scaling(qdata.frequencies, scaling_factor)
@@ -573,19 +564,22 @@ class UnitConverter:
 
 
 def create_molecule_object(qdata: QuantumData, correction: Optional[CorrectionResult] = None,
-                          name: str = "Molecule", species_type: str = "RRHO",
-                          symmetry_factor: float = 1.0, ground_energy: float = 0.0) -> Dict[str, Any]:
+                           name: str = "Molecule", species_type: str = "RRHO",
+                           symmetry_factor: float = 1.0, GroundEnergy: float = 0.0,
+                           ZeroEnergy: Optional[float] = None) -> Dict[str, Any]:
     """
     Create a standardized molecule dictionary for template rendering.
-    
+
     Args:
         qdata: Parsed quantum data
         correction: Optional frequency correction results
         name: Molecule/species name
         species_type: Type in MESS (RRHO, Bimolecular, etc.)
         symmetry_factor: Rotational symmetry factor
-        ground_energy: Ground state energy relative to reference
-        
+        GroundEnergy: Ground state energy relative to reference
+        ZeroEnergy: Zero-point energy (kcal/mol) from YAML configuration.
+                    This takes priority over computed energies.
+
     Returns:
         Dictionary with all data needed for template rendering
     """
@@ -598,7 +592,7 @@ def create_molecule_object(qdata: QuantumData, correction: Optional[CorrectionRe
         frequencies = qdata.frequencies
         zpe = qdata.zero_point_energy
         total_energy = None
-        
+
         # Compute total energy if possible even without correction
         if qdata.scf_energy is not None:
             scf_energy_kcal_mol = UnitConverter.convert_energy(qdata.scf_energy, "hartree", "kcal/mol")
@@ -608,10 +602,20 @@ def create_molecule_object(qdata: QuantumData, correction: Optional[CorrectionRe
                 total_energy = scf_energy_kcal_mol
         elif zpe is not None:
             total_energy = zpe
-    
-    # Count imaginary frequencies
-    num_imaginary = sum(1 for f in frequencies if f < 0)
-    
+
+    # Count imaginary frequencies (in scaled frequencies, imaginary has been converted to abs)
+    num_imaginary = sum(1 for f in qdata.frequencies if f < 0)
+
+    # Build real and imaginary frequency lists from correction result
+    if correction and correction.success:
+        # Real frequencies: scaled, without imaginary
+        real_freqs = correction.real_frequencies
+        # Imaginary frequency: scaled absolute value (already computed in correction)
+        imag_freq = correction.imaginary_frequency
+    else:
+        real_freqs = [f for f in frequencies if f >= 0]
+        imag_freq = None
+
     # Create molecule dictionary
     molecule = {
         "name": name,
@@ -621,19 +625,21 @@ def create_molecule_object(qdata: QuantumData, correction: Optional[CorrectionRe
         "frequencies": frequencies,
         "num_frequencies": len(frequencies),
         "num_imaginary": num_imaginary,
-        "real_frequencies": [f for f in frequencies if f >= 0],
-        "imaginary_frequencies": [f for f in frequencies if f < 0],
+        "real_frequencies": real_freqs,
+        "imaginary_frequencies": imag_freq,
         "scf_energy": qdata.scf_energy,
         "zero_point_energy": zpe,
         "total_energy": total_energy,
         "symmetry_factor": symmetry_factor,
-        "ground_energy": ground_energy,
+        "GroundEnergy": GroundEnergy,
         "multiplicity": qdata.multiplicity,
         "charge": qdata.charge,
         "convergence_status": qdata.convergence_status,
         "method_basis": qdata.method_basis,
+        # ZeroEnergy from YAML takes highest priority — this is what the user specified
+        "ZeroEnergy": ZeroEnergy,
     }
-    
+
     return molecule
 
 
