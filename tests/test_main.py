@@ -122,7 +122,8 @@ class TestMainFunctions:
         
         config = {
             "quantum": {
-                "frequency_scaling_factor": 0.971,
+                "Frequency_factor": 0.971,
+                "zpe_factor": 0.95,
                 "handle_imaginary": "remove"
             }
         }
@@ -132,7 +133,8 @@ class TestMainFunctions:
         
         # Check that FrequencyCorrector was called with correct parameters
         mock_frequency_corrector.assert_called_once_with(
-            scaling_factor=0.971,
+            Frequency_factor=0.971,
+            zpe_factor=0.95,
             handle_imaginary="remove"
         )
         
@@ -155,7 +157,8 @@ class TestMainFunctions:
             
             # Should use default handle_imaginary
             mock_frequency_corrector.assert_called_once_with(
-                scaling_factor=0.971,
+                Frequency_factor=0.971,
+                zpe_factor=1.0,
                 handle_imaginary="abs"  # Default
             )
     
@@ -281,6 +284,8 @@ class TestArgumentParsing:
             "--output", "output.inp",
             "--verbose",
             "--overwrite",
+            "--scaling", "0.97",
+            "--zpe-factor", "0.95",
             "--log-level", "DEBUG"
         ]
         
@@ -291,6 +296,8 @@ class TestArgumentParsing:
             assert parser.output == "output.inp"
             assert parser.verbose is True
             assert parser.overwrite is True
+            assert parser.scaling == 0.97
+            assert parser.zpe_factor == 0.95
             assert parser.log_level == "DEBUG"
     
     def test_parse_arguments_help(self):

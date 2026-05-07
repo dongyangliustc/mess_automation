@@ -97,7 +97,7 @@ class QuantumData:
         lines = [f"Geometry[{units}] {self.num_atoms:>15}"]
         for atom in self.atoms:
             lines.append(f"  {atom}")
-        return "\n".join(lines)
+        return "\n".join(lines) + "\n"
     
     def get_frequencies_string(self, units: str = "1/cm") -> str:
         """Return frequencies as formatted string for MESS input."""
@@ -109,7 +109,7 @@ class QuantumData:
             line = "  " + " ".join(f"{f:>10.2f}" for f in chunk)
             lines.append(line)
         
-        return "\n".join(lines)
+        return "\n".join(lines) + "\n"
 
 
 class GaussianParser:

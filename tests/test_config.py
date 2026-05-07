@@ -186,7 +186,8 @@ class TestConfigClass:
                 "files": ["test1.out", "test2.out"]
             },
             "quantum": {
-                "frequency_scaling_factor": 0.971,
+                "Frequency_factor": 0.971,
+                "zpe_factor": 0.95,
                 "geometry_units": "angstrom",
                 "frequency_units": "1/cm",
                 "energy_units": "kcal/mol"
@@ -225,6 +226,8 @@ class TestConfigClass:
         # Check properties
         assert config.input_files == ["test1.out", "test2.out"]
         assert config.frequency_scaling_factor == 0.971
+        assert config.Frequency_factor == 0.971
+        assert config.zpe_factor == 0.95
         assert config.geometry_units == "angstrom"
         assert config.frequency_units == "1/cm"
         assert config.energy_units == "kcal/mol"

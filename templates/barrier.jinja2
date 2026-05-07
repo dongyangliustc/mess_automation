@@ -36,6 +36,12 @@
 {% endif %}
 {% if barrier.ZeroEnergy is defined and barrier.ZeroEnergy is not none %}
       ZeroEnergy[kcal/mol]        {{ "%.4f"|format(barrier.ZeroEnergy) }}
+{% elif barrier.zero_energy is defined and barrier.zero_energy is not none %}
+      ZeroEnergy[kcal/mol]        {{ "%.4f"|format(barrier.zero_energy) }}
+{% elif barrier.total_energy is defined and barrier.total_energy is not none %}
+      ZeroEnergy[kcal/mol]        {{ "%.4f"|format(barrier.total_energy) }}
+{% elif barrier.zero_point_energy_kcal_mol is defined and barrier.zero_point_energy_kcal_mol is not none %}
+      ZeroEnergy[kcal/mol]        {{ "%.4f"|format(barrier.zero_point_energy_kcal_mol) }}
 {% endif %}
 {% if barrier.forward_barrier is defined and barrier.forward_barrier is not none %}
       WellDepth[kcal/mol]         {{ "%.2f"|format(barrier.forward_barrier) }}

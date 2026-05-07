@@ -15,7 +15,6 @@ import logging
 from typing import Dict, List, Optional, Tuple, Union, Any
 from dataclasses import dataclass, field
 from pathlib import Path
-import numpy as np
 
 try:
     from .parser import QuantumData, GaussianParser
@@ -36,6 +35,14 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+def get_first_defined(*values: Optional[float], default: float) -> float:
+    """Return the first non-None float value, or *default*."""
+    for value in values:
+        if value is not None:
+            return float(value)
+    return default
+
+
 @dataclass
 class CorrectionResult:
     """Container for corrected quantum chemistry data."""
@@ -47,10 +54,12 @@ class CorrectionResult:
     
     # Applied corrections
     scaling_factor: float
+    frequency_factor: Optional[float] = None
+    zpe_factor: float = 1.0
     corrections_applied: List[str] = field(default_factory=list)
     
     # Derived properties
-    scaled_zpe: Optional[float] = None
+    scaled_zpe: Optional[float] = None  # Hartree, matching QuantumData.zero_point_energy
     scaled_thermal: Optional[float] = None
     total_energy: Optional[float] = None  # Total energy (SCF + ZPE) in kcal/mol
     
@@ -68,6 +77,11 @@ class CorrectionResult:
     
     def __post_init__(self):
         """Compute derived properties after initialization."""
+        if self.frequency_factor is None:
+            self.frequency_factor = self.scaling_factor
+        else:
+            self.scaling_factor = self.frequency_factor
+
         # Compute scaled ZPE if original ZPE exists
         if self.original_data.zero_point_energy is not None:
             self._compute_scaled_zpe()
@@ -79,48 +93,49 @@ class CorrectionResult:
         self._compute_total_energy()
     
     def _compute_scaled_zpe(self):
-        """Compute zero-point energy from scaled frequencies."""
-        # 根据用户需求，ZPE应该使用原始值，不随频率缩放因子缩放
-        # 直接使用原始的ZPE值
+        """Compute scaled ZPE in Hartree using the dedicated ZPE factor."""
         original_zpe = self.original_data.zero_point_energy
         if original_zpe is not None:
-            self.scaled_zpe = original_zpe
-            logger.debug(f"Using original ZPE value: {original_zpe:.2f} kcal/mol (not scaled)")
+            self.scaled_zpe = original_zpe * self.zpe_factor
+            logger.debug(
+                f"Scaled ZPE: raw={original_zpe:.8f} Hartree, "
+                f"zpe_factor={self.zpe_factor}, scaled={self.scaled_zpe:.8f} Hartree"
+            )
         else:
             self.scaled_zpe = None
             
-        # 记录我们使用了原始ZPE值
-        if "zpe_original" not in self.corrections_applied:
-            self.corrections_applied.append("zpe_original")
+        if "zpe_scaling" not in self.corrections_applied:
+            self.corrections_applied.append("zpe_scaling")
     
     def _extract_imaginary_frequency(self):
         """Extract imaginary frequency for transition states."""
-        # Find negative frequencies in original data (before scaling)
-        original_imaginary_freqs = [f for f in self.original_data.frequencies if f < 0]
-        
-        if original_imaginary_freqs:
-            # Take the first (most negative) imaginary frequency from original data
-            original_imag = min(original_imaginary_freqs)  # Most negative
-            
-            # Apply scaling factor to get the scaled imaginary frequency
-            # MESS expects the absolute value of the scaled imaginary frequency
-            scaled_imag = abs(original_imag) * self.scaling_factor
-            self.imaginary_frequency = scaled_imag
-            
-            # Find its position in the original list
-            imag_idx = self.original_data.frequencies.index(original_imag)
+        imaginary_modes = [
+            (index, frequency)
+            for index, frequency in enumerate(self.original_data.frequencies)
+            if frequency < 0
+        ]
 
-            # Create real frequencies list: all scaled frequencies except the imaginary one
-            # Only skip the imaginary frequency position (use precise index, not value check)
-            self.real_frequencies = []
-            for i, scaled_freq in enumerate(self.scaled_frequencies):
-                if i == imag_idx:
-                    # This is the imaginary frequency position, skip it
-                    continue
-                self.real_frequencies.append(scaled_freq)
-            
-            logger.debug(f"Extracted scaled imaginary frequency: {self.imaginary_frequency:.2f} cm^-1 (scaling factor: {self.scaling_factor})")
-            logger.debug(f"Real frequencies count: {len(self.real_frequencies)} (original had {len(self.original_data.frequencies)})")
+        if imaginary_modes:
+            _, original_imag = min(imaginary_modes, key=lambda item: item[1])
+            self.imaginary_frequency = abs(original_imag) * self.frequency_factor
+
+            if len(self.scaled_frequencies) == len(self.original_data.frequencies):
+                self.real_frequencies = [
+                    scaled_freq
+                    for index, scaled_freq in enumerate(self.scaled_frequencies)
+                    if self.original_data.frequencies[index] >= 0
+                ]
+            else:
+                self.real_frequencies = [f for f in self.scaled_frequencies if f >= 0]
+
+            logger.debug(
+                f"Extracted scaled imaginary frequency: {self.imaginary_frequency:.2f} cm^-1 "
+                f"(Frequency_factor: {self.frequency_factor})"
+            )
+            logger.debug(
+                f"Real frequencies count: {len(self.real_frequencies)} "
+                f"(original had {len(self.original_data.frequencies)})"
+            )
         else:
             # No imaginary frequencies, all are real
             self.real_frequencies = [f for f in self.scaled_frequencies if f >= 0]
@@ -131,24 +146,24 @@ class CorrectionResult:
         # Get SCF energy in Hartree
         scf_energy_hartree = self.original_data.scf_energy
         
-        # Get ZPE in kcal/mol (either original or scaled)
-        zpe_kcal_mol = None
+        # Get ZPE in Hartree (either original or scaled)
+        zpe_hartree = None
         if self.scaled_zpe is not None:
-            zpe_kcal_mol = self.scaled_zpe
+            zpe_hartree = self.scaled_zpe
         elif self.original_data.zero_point_energy is not None:
-            zpe_kcal_mol = self.original_data.zero_point_energy
+            zpe_hartree = self.original_data.zero_point_energy
         
         # If we have both SCF energy and ZPE, compute total energy
-        if scf_energy_hartree is not None and zpe_kcal_mol is not None:
-            # Convert SCF energy from Hartree to kcal/mol
-            scf_energy_kcal_mol = UnitConverter.convert_energy(
-                scf_energy_hartree, "hartree", "kcal/mol"
+        if scf_energy_hartree is not None and zpe_hartree is not None:
+            total_hartree = scf_energy_hartree + zpe_hartree
+            self.total_energy = UnitConverter.convert_energy(
+                total_hartree, "hartree", "kcal/mol"
             )
-            
-            # Total energy = SCF energy + ZPE
-            self.total_energy = scf_energy_kcal_mol + zpe_kcal_mol
-            
-            logger.debug(f"Computed total energy: SCF={scf_energy_kcal_mol:.2f} + ZPE={zpe_kcal_mol:.2f} = {self.total_energy:.2f} kcal/mol")
+
+            logger.debug(
+                f"Computed total energy: SCF={scf_energy_hartree:.8f} Ha + "
+                f"ZPE={zpe_hartree:.8f} Ha = {self.total_energy:.2f} kcal/mol"
+            )
         else:
             # If missing data, use available energy information
             if scf_energy_hartree is not None:
@@ -157,9 +172,11 @@ class CorrectionResult:
                     scf_energy_hartree, "hartree", "kcal/mol"
                 )
                 logger.debug(f"Using SCF energy only: {self.total_energy:.2f} kcal/mol")
-            elif zpe_kcal_mol is not None:
+            elif zpe_hartree is not None:
                 # Only ZPE available
-                self.total_energy = zpe_kcal_mol
+                self.total_energy = UnitConverter.convert_energy(
+                    zpe_hartree, "hartree", "kcal/mol"
+                )
                 logger.debug(f"Using ZPE only: {self.total_energy:.2f} kcal/mol")
             else:
                 logger.warning("No energy information available for total energy calculation")
@@ -181,7 +198,7 @@ class CorrectionResult:
             line = "  " + " ".join(f"{f:>10.2f}" for f in chunk)
             lines.append(line)
         
-        return "\n".join(lines)
+        return "\n".join(lines) + "\n"
     
 
 
@@ -197,14 +214,20 @@ class FrequencyCorrector:
     - Data validation and error checking
     """
     
-    def __init__(self, scaling_factor: float = 0.971, 
+    def __init__(self, scaling_factor: Optional[float] = None,
                  handle_imaginary: str = "abs",  # Take absolute value for MESS output
-                 validate_input: bool = True):
+                 validate_input: bool = True,
+                 Frequency_factor: Optional[float] = None,
+                 zpe_factor: Optional[float] = None,
+                 frequency_factor: Optional[float] = None):
         """
         Initialize frequency corrector.
         
         Args:
-            scaling_factor: Multiplicative factor to apply to frequencies
+            scaling_factor: Deprecated alias for ``Frequency_factor``.
+            Frequency_factor: Multiplicative factor to apply to frequencies.
+            zpe_factor: Multiplicative factor to apply to zero-point energy.
+            frequency_factor: Lower-case alias for ``Frequency_factor``.
             handle_imaginary: How to handle imaginary frequencies:
                 "abs": Take absolute value (make positive)
                 "keep": Keep negative values
@@ -212,7 +235,15 @@ class FrequencyCorrector:
                 "warn": Keep but warn
             validate_input: Validate input data before processing
         """
-        self.scaling_factor = scaling_factor
+        resolved_frequency_factor = get_first_defined(
+            Frequency_factor, frequency_factor, scaling_factor, default=1.0
+        )
+        resolved_zpe_factor = 1.0 if zpe_factor is None else float(zpe_factor)
+
+        self.Frequency_factor = resolved_frequency_factor
+        self.frequency_factor = resolved_frequency_factor
+        self.scaling_factor = resolved_frequency_factor
+        self.zpe_factor = resolved_zpe_factor
         self.handle_imaginary = handle_imaginary
         self.validate_input = validate_input
         
@@ -224,37 +255,59 @@ class FrequencyCorrector:
                 f"Invalid handle_imaginary: {handle_imaginary}. "
                 f"Allowed: {self._allowed_imaginary_methods}"
             )
+
     
     @wrap_with_error_handler
-    def correct_frequencies(self, qdata: QuantumData, 
-                           scaling_factor: Optional[float] = None) -> CorrectionResult:
+    def correct_frequencies(self, qdata: QuantumData,
+                           scaling_factor: Optional[float] = None,
+                           Frequency_factor: Optional[float] = None,
+                           zpe_factor: Optional[float] = None,
+                           frequency_factor: Optional[float] = None) -> CorrectionResult:
         """
         Apply frequency scaling to a QuantumData object.
         
         Args:
             qdata: QuantumData object with frequencies to correct
-            scaling_factor: Optional scaling factor (overrides default)
+            scaling_factor: Deprecated alias for ``Frequency_factor``.
+            Frequency_factor: Optional frequency scaling factor.
+            zpe_factor: Optional ZPE scaling factor.
+            frequency_factor: Lower-case alias for ``Frequency_factor``.
             
         Returns:
             CorrectionResult object with scaled frequencies. Returns a failed
             CorrectionResult (success=False) if validation fails.
         """
-        if scaling_factor is None:
-            scaling_factor = self.scaling_factor
+        resolved_frequency_factor = get_first_defined(
+            Frequency_factor, frequency_factor, scaling_factor,
+            default=self.frequency_factor,
+        )
+        resolved_zpe_factor = self.zpe_factor if zpe_factor is None else float(zpe_factor)
         
-        # Validate scaling factor
-        if scaling_factor <= 0:
-            raise ScalingFactorError(scaling_factor)
+        # Validate scaling factors
+        if resolved_frequency_factor <= 0:
+            raise ScalingFactorError(resolved_frequency_factor)
+        if resolved_zpe_factor <= 0:
+            raise ScalingFactorError(resolved_zpe_factor)
 
         # Validate input if requested
         if self.validate_input:
             validation_errors = self._validate_input(qdata)
             if validation_errors:
                 error_msg = "; ".join(validation_errors)
-                logger.warning(f"Input validation warnings (proceeding with scaling anyway): {error_msg}")
+                logger.warning(f"Input validation failed: {error_msg}")
+                return CorrectionResult(
+                    original_data=qdata,
+                    scaled_frequencies=[],
+                    scaling_factor=resolved_frequency_factor,
+                    frequency_factor=resolved_frequency_factor,
+                    zpe_factor=resolved_zpe_factor,
+                    corrections_applied=[],
+                    success=False,
+                    error_message=f"Validation failed: {error_msg}",
+                )
         
         # Apply scaling to frequencies
-        scaled_freqs = self._apply_scaling(qdata.frequencies, scaling_factor)
+        scaled_freqs = self._apply_scaling(qdata.frequencies, resolved_frequency_factor)
         
         # Handle imaginary frequencies
         scaled_freqs = self._handle_imaginary_frequencies(scaled_freqs, qdata.frequencies)
@@ -263,11 +316,21 @@ class FrequencyCorrector:
         result = CorrectionResult(
             original_data=qdata,
             scaled_frequencies=scaled_freqs,
-            scaling_factor=scaling_factor,
+            scaling_factor=resolved_frequency_factor,
+            frequency_factor=resolved_frequency_factor,
+            zpe_factor=resolved_zpe_factor,
             corrections_applied=["frequency_scaling"]
         )
         
-        logger.info(f"Applied scaling factor {scaling_factor} to {len(scaled_freqs)} frequencies")
+        logger.info(
+            f"Applied Frequency_factor={resolved_frequency_factor} to "
+            f"{len(scaled_freqs)} frequencies"
+        )
+        if qdata.zero_point_energy is not None:
+            logger.info(
+                f"Applied zpe_factor={resolved_zpe_factor}: "
+                f"{qdata.zero_point_energy:.8f} -> {result.scaled_zpe:.8f} Hartree"
+            )
         logger.info(f"Imaginary frequencies: {sum(1 for f in scaled_freqs if f < 0)}")
         
         return result
@@ -362,6 +425,12 @@ class FrequencyCorrector:
     def _validate_input(self, qdata: QuantumData) -> List[str]:
         """Validate input QuantumData object."""
         errors = []
+
+        if not qdata.convergence_status:
+            errors.append("Calculation did not converge")
+
+        if not qdata.atoms:
+            errors.append("No atoms found in input data")
         
         # Check if frequencies exist
         if not qdata.frequencies:
@@ -384,14 +453,16 @@ class FrequencyCorrector:
         
         return errors
     
-    def correct_file(self, filepath: Union[str, Path], 
-                    scaling_factor: Optional[float] = None) -> Tuple[QuantumData, CorrectionResult]:
+    def correct_file(self, filepath: Union[str, Path],
+                    scaling_factor: Optional[float] = None,
+                    zpe_factor: Optional[float] = None) -> Tuple[QuantumData, CorrectionResult]:
         """
         Parse a Gaussian file and correct its frequencies.
         
         Args:
             filepath: Path to Gaussian output file
-            scaling_factor: Optional scaling factor (overrides default)
+            scaling_factor: Optional frequency scaling factor (overrides default)
+            zpe_factor: Optional ZPE scaling factor (overrides default)
             
         Returns:
             Tuple of (parsed QuantumData, CorrectionResult)
@@ -406,19 +477,22 @@ class FrequencyCorrector:
                 original_data=qdata,
                 scaled_frequencies=[],
                 scaling_factor=scaling_factor or self.scaling_factor,
+                frequency_factor=scaling_factor or self.frequency_factor,
+                zpe_factor=zpe_factor or self.zpe_factor,
                 success=False,
                 error_message=f"Parse error: {qdata.error_message}"
             )
         
         # Correct frequencies
-        result = self.correct_frequencies(qdata, scaling_factor)
+        result = self.correct_frequencies(qdata, scaling_factor, zpe_factor=zpe_factor)
         
         return qdata, result
     
     def process_directory(self, directory: Union[str, Path], 
                          pattern: str = "*.out", 
                          recursive: bool = False,
-                         scaling_factor: Optional[float] = None) -> Dict[str, Tuple[QuantumData, CorrectionResult]]:
+                         scaling_factor: Optional[float] = None,
+                         zpe_factor: Optional[float] = None) -> Dict[str, Tuple[QuantumData, CorrectionResult]]:
         """
         Process all Gaussian files in a directory.
         
@@ -426,7 +500,8 @@ class FrequencyCorrector:
             directory: Directory to search
             pattern: File pattern to match
             recursive: Search recursively
-            scaling_factor: Optional scaling factor
+            scaling_factor: Optional frequency scaling factor
+            zpe_factor: Optional ZPE scaling factor
             
         Returns:
             Dictionary mapping filenames to (QuantumData, CorrectionResult) tuples
@@ -445,7 +520,7 @@ class FrequencyCorrector:
         # Process each file
         for filepath in files:
             try:
-                qdata, correction = self.correct_file(filepath, scaling_factor)
+                qdata, correction = self.correct_file(filepath, scaling_factor, zpe_factor)
                 if correction.success:
                     results[str(filepath)] = (qdata, correction)
             except Exception as e:
@@ -565,8 +640,10 @@ class UnitConverter:
 
 def create_molecule_object(qdata: QuantumData, correction: Optional[CorrectionResult] = None,
                            name: str = "Molecule", species_type: str = "RRHO",
-                           symmetry_factor: float = 1.0, GroundEnergy: float = 0.0,
-                           ZeroEnergy: Optional[float] = None) -> Dict[str, Any]:
+                           symmetry_factor: float = 1.0, GroundEnergy: Optional[float] = None,
+                           ZeroEnergy: Optional[float] = None,
+                           ground_energy: Optional[float] = None,
+                           zero_energy: Optional[float] = None) -> Dict[str, Any]:
     """
     Create a standardized molecule dictionary for template rendering.
 
@@ -577,31 +654,49 @@ def create_molecule_object(qdata: QuantumData, correction: Optional[CorrectionRe
         species_type: Type in MESS (RRHO, Bimolecular, etc.)
         symmetry_factor: Rotational symmetry factor
         GroundEnergy: Ground state energy relative to reference
-        ZeroEnergy: Zero-point energy (kcal/mol) from YAML configuration.
-                    This takes priority over computed energies.
+        ZeroEnergy/zero_energy: Species zero energy (kcal/mol) from YAML.
+                                This takes priority over computed energies.
 
     Returns:
         Dictionary with all data needed for template rendering
     """
-    # Use corrected frequencies if available, otherwise original
+    effective_ground_energy = (
+        ground_energy if ground_energy is not None
+        else (GroundEnergy if GroundEnergy is not None else 0.0)
+    )
+    effective_zero_energy = zero_energy if zero_energy is not None else ZeroEnergy
+
+    # Use corrected frequencies if available, otherwise original.
+    # Parser stores Gaussian zero-point correction in Hartree.
     if correction and correction.success:
         frequencies = correction.scaled_frequencies
-        zpe = correction.scaled_zpe or qdata.zero_point_energy
+        zpe_hartree = (
+            correction.scaled_zpe
+            if correction.scaled_zpe is not None
+            else qdata.zero_point_energy
+        )
         total_energy = correction.total_energy
     else:
         frequencies = qdata.frequencies
-        zpe = qdata.zero_point_energy
+        zpe_hartree = qdata.zero_point_energy
         total_energy = None
 
         # Compute total energy if possible even without correction
         if qdata.scf_energy is not None:
-            scf_energy_kcal_mol = UnitConverter.convert_energy(qdata.scf_energy, "hartree", "kcal/mol")
-            if zpe is not None:
-                total_energy = scf_energy_kcal_mol + zpe
+            if zpe_hartree is not None:
+                total_energy = UnitConverter.convert_energy(
+                    qdata.scf_energy + zpe_hartree, "hartree", "kcal/mol"
+                )
             else:
-                total_energy = scf_energy_kcal_mol
-        elif zpe is not None:
-            total_energy = zpe
+                total_energy = UnitConverter.convert_energy(qdata.scf_energy, "hartree", "kcal/mol")
+        elif zpe_hartree is not None:
+            total_energy = UnitConverter.convert_energy(zpe_hartree, "hartree", "kcal/mol")
+
+    zpe_kcal_mol = (
+        UnitConverter.convert_energy(zpe_hartree, "hartree", "kcal/mol")
+        if zpe_hartree is not None
+        else None
+    )
 
     # Count imaginary frequencies (in scaled frequencies, imaginary has been converted to abs)
     num_imaginary = sum(1 for f in qdata.frequencies if f < 0)
@@ -626,18 +721,23 @@ def create_molecule_object(qdata: QuantumData, correction: Optional[CorrectionRe
         "num_frequencies": len(frequencies),
         "num_imaginary": num_imaginary,
         "real_frequencies": real_freqs,
-        "imaginary_frequencies": imag_freq,
+        "imaginary_frequency": imag_freq,
+        "imaginary_frequencies": list(qdata.imaginary_frequencies),
         "scf_energy": qdata.scf_energy,
-        "zero_point_energy": zpe,
+        "zero_point_energy": zpe_hartree,
+        "zero_point_energy_hartree": zpe_hartree,
+        "zero_point_energy_kcal_mol": zpe_kcal_mol,
         "total_energy": total_energy,
         "symmetry_factor": symmetry_factor,
-        "GroundEnergy": GroundEnergy,
+        "GroundEnergy": effective_ground_energy,
+        "ground_energy": effective_ground_energy,
         "multiplicity": qdata.multiplicity,
         "charge": qdata.charge,
         "convergence_status": qdata.convergence_status,
         "method_basis": qdata.method_basis,
-        # ZeroEnergy from YAML takes highest priority — this is what the user specified
-        "ZeroEnergy": ZeroEnergy,
+        # ZeroEnergy from YAML takes highest priority; this is what the user specified.
+        "ZeroEnergy": effective_zero_energy,
+        "zero_energy": effective_zero_energy,
     }
 
     return molecule
@@ -651,8 +751,10 @@ if __name__ == "__main__":
         description="Apply frequency scaling to Gaussian output files"
     )
     parser.add_argument("input", help="Gaussian output file or directory")
-    parser.add_argument("--factor", "-f", type=float, default=0.971,
-                       help="Scaling factor (default: 0.971)")
+    parser.add_argument("--factor", "-f", type=float, default=1.0,
+                       help="Frequency_factor for vibrational frequencies (default: 1.0)")
+    parser.add_argument("--zpe-factor", type=float, default=1.0,
+                       help="zpe_factor for zero-point energy (default: 1.0)")
     parser.add_argument("--imaginary", "-i", default="abs",
                        choices=["abs", "keep", "remove", "warn"],
                        help="How to handle imaginary frequencies (default: abs)")
@@ -672,7 +774,8 @@ if __name__ == "__main__":
     
     # Create corrector
     corrector = FrequencyCorrector(
-        scaling_factor=args.factor,
+        Frequency_factor=args.factor,
+        zpe_factor=args.zpe_factor,
         handle_imaginary=args.imaginary
     )
     
@@ -686,12 +789,13 @@ if __name__ == "__main__":
             output.append(f"File: {qdata.filename}")
             output.append(f"Original frequencies: {len(qdata.frequencies)}")
             output.append(f"Scaled frequencies: {len(correction.scaled_frequencies)}")
-            output.append(f"Scaling factor: {correction.scaling_factor}")
+            output.append(f"Frequency_factor: {correction.frequency_factor}")
+            output.append(f"zpe_factor: {correction.zpe_factor}")
             output.append(f"Imaginary frequencies: {sum(1 for f in correction.scaled_frequencies if f < 0)}")
             
             if qdata.zero_point_energy and correction.scaled_zpe:
-                output.append(f"Original ZPE: {qdata.zero_point_energy:.2f} kcal/mol")
-                output.append(f"Scaled ZPE: {correction.scaled_zpe:.2f} kcal/mol")
+                output.append(f"Original ZPE: {qdata.zero_point_energy:.8f} Hartree")
+                output.append(f"Scaled ZPE: {correction.scaled_zpe:.8f} Hartree")
             
             result = "\n".join(output)
         else:
@@ -710,7 +814,8 @@ if __name__ == "__main__":
             output.append(f"\n{filename}:")
             output.append(f"  Atoms: {qdata.num_atoms}")
             output.append(f"  Frequencies: {len(correction.scaled_frequencies)}")
-            output.append(f"  Scaling factor: {correction.scaling_factor}")
+            output.append(f"  Frequency_factor: {correction.frequency_factor}")
+            output.append(f"  zpe_factor: {correction.zpe_factor}")
         
         result = "\n".join(output)
     else:

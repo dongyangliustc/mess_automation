@@ -64,7 +64,7 @@ class TestTemplateRendering:
         assert "H" in rendered
     
     def test_species_template_without_total_energy(self):
-        """Test species template uses zero_point_energy when total_energy absent."""
+        """Test species template uses kcal/mol ZPE fallback when total_energy absent."""
         assembler = MESSAssembler()
         
         # Test data without total_energy
@@ -76,7 +76,7 @@ class TestTemplateRendering:
             "num_atoms": 1,
             "frequencies": [100.0],
             "num_frequencies": 1,
-            "zero_point_energy": 10.0,  # Only ZPE, no total_energy
+            "zero_point_energy_kcal_mol": 10.0,  # Only ZPE, no total_energy
             "symmetry_factor": 1.0,
             "GroundEnergy": 0.0,
             "comment": "",
@@ -84,7 +84,7 @@ class TestTemplateRendering:
         
         rendered = assembler.render_species_template(data)
         
-        # Should use zero_point_energy if total_energy not available
+        # Should use zero_point_energy_kcal_mol if total_energy is not available
         assert "ZeroEnergy[kcal/mol]" in rendered
         assert "10.0" in rendered or "10.00" in rendered
     
