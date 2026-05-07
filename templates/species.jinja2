@@ -55,6 +55,12 @@ GroundEnergy[kcal/mol] {{ species.ground_energy }}
 {% endif %}
 {% if species.ZeroEnergy is defined and species.ZeroEnergy is not none %}
       ZeroEnergy[kcal/mol]        {{ "%.4f"|format(species.ZeroEnergy) }}
+{% elif species.zero_energy is defined and species.zero_energy is not none %}
+      ZeroEnergy[kcal/mol]        {{ "%.4f"|format(species.zero_energy) }}
+{% elif species.total_energy is defined and species.total_energy is not none %}
+      ZeroEnergy[kcal/mol]        {{ "%.4f"|format(species.total_energy) }}
+{% elif species.zero_point_energy_kcal_mol is defined and species.zero_point_energy_kcal_mol is not none %}
+      ZeroEnergy[kcal/mol]        {{ "%.4f"|format(species.zero_point_energy_kcal_mol) }}
 {% endif %}
 {% if species.electronic_levels is defined and species.electronic_levels %}
   ElectronicLevels[1/cm]                      {{ species.electronic_levels|length }}

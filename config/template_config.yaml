@@ -22,7 +22,10 @@ output:
 # Quantum chemistry settings
 quantum:
   # Scaling factor for harmonic frequencies
-  frequency_scaling_factor: 0.971
+  Frequency_factor: 0.971
+
+  # Scaling factor for zero-point energy
+  zpe_factor: 1.0
   
   # Units for output (MESS uses specific units)
   geometry_units: "angstrom"  # angstrom or bohr
@@ -62,6 +65,9 @@ mess_global:
 
 # Reaction network definition
 reaction_network:
+  # Electronic energy baseline subtracted from every EleEnergy value
+  EleEnergy_baseline: 0.0
+
   # Define species types: reactant, well, product, barrier
   species:
     - name: "R"

@@ -378,13 +378,6 @@ class MESSAssembler:
         parts = []
         parts.append(self.render_global_section())
         parts.append(self.render_model_section())
-        parts.append("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        parts.append("!***************************************************")
-        parts.append("!  REACTANTS")
-        parts.append("!***************************************************")
-        parts.append("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-        parts.append("!***************************************************")
-        parts.append("")
         parts.append(self.render_species_sections())
         parts.append(self.render_barrier_sections())
         parts.append("End")
@@ -467,7 +460,18 @@ class MESSAssembler:
                 continue
             mol_data = dict(mol)
             mol_data.setdefault("name", sp.name)
+            mol_data.setdefault("comment", sp.comment)
+            mol_data.setdefault("symmetry_factor", sp.symmetry_factor)
+            mol_data.setdefault("GroundEnergy", sp.ground_energy)
+            mol_data.setdefault("ground_energy", sp.ground_energy)
+            if sp.zero_energy is not None:
+                mol_data.setdefault("ZeroEnergy", sp.zero_energy)
+                mol_data.setdefault("zero_energy", sp.zero_energy)
+            elif mol_data.get("ZeroEnergy") is None:
+                mol_data.setdefault("ZeroEnergy", mol_data.get("total_energy"))
             if sp.species_type == "barrier":
+                mol_data.setdefault("from_species", sp.from_species)
+                mol_data.setdefault("to_species", sp.to_species)
                 try:
                     parts.append(self.render_barrier_template(mol_data))
                 except Exception as exc:
@@ -497,11 +501,24 @@ class MESSSpecies:
     species_type: str = "well"          # "well" | "barrier" | "bimolecular"
     gaussian_file: Optional[str] = None
     symmetry_factor: float = 1.0
-    GroundEnergy: float = 0.0           # Deprecated, kept for compatibility
-    ZeroEnergy: Optional[float] = None  # Preferred energy field [kcal/mol]
+    ground_energy: float = 0.0
+    zero_energy: Optional[float] = None
+    GroundEnergy: Optional[float] = None  # Deprecated, kept for compatibility
+    ZeroEnergy: Optional[float] = None    # Deprecated, kept for compatibility
     from_species: Optional[str] = None
     to_species: Optional[str] = None
     comment: str = ""
+
+    def __post_init__(self):
+        if self.GroundEnergy is not None and self.ground_energy == 0.0:
+            self.ground_energy = self.GroundEnergy
+        else:
+            self.GroundEnergy = self.ground_energy
+
+        if self.zero_energy is None and self.ZeroEnergy is not None:
+            self.zero_energy = self.ZeroEnergy
+        else:
+            self.ZeroEnergy = self.zero_energy
 
 
 @dataclass

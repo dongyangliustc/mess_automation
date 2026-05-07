@@ -160,7 +160,7 @@ class TestCorrectionResult:
             frequencies=[100.0],
             num_frequencies=1,
             scf_energy=-100.0,  # Hartree
-            zero_point_energy=10.0,  # kcal/mol
+            zero_point_energy=0.01,  # Hartree
         )
         
         result = CorrectionResult(
@@ -172,11 +172,8 @@ class TestCorrectionResult:
         # Check total energy calculation
         assert result.total_energy is not None
         
-        # SCF energy in kcal/mol: -100.0 * 627.509474 = -62750.9474
-        # ZPE: 10.0 kcal/mol
-        # Total: -62750.9474 + 10.0 = -62740.9474 kcal/mol
-        scf_kcal = -100.0 * 627.509474
-        expected_total = scf_kcal + 10.0
+        # Total energy is (SCF + ZPE) converted from Hartree to kcal/mol.
+        expected_total = (-100.0 + 0.01) * 627.509474
         
         assert abs(result.total_energy - expected_total) < 0.1
     
@@ -218,7 +215,7 @@ class TestCorrectionResult:
             frequencies=[100.0],
             num_frequencies=1,
             scf_energy=None,  # No SCF
-            zero_point_energy=10.0,  # kcal/mol
+            zero_point_energy=0.01,  # Hartree
         )
         
         result = CorrectionResult(
@@ -227,8 +224,8 @@ class TestCorrectionResult:
             scaling_factor=0.9,
         )
         
-        # Should use only ZPE
-        assert result.total_energy == 10.0
+        # Should use only ZPE converted from Hartree to kcal/mol
+        assert abs(result.total_energy - (0.01 * 627.509474)) < 0.1
 
 
 class TestFrequencyCorrector:
@@ -238,6 +235,8 @@ class TestFrequencyCorrector:
         """Test FrequencyCorrector initialization."""
         corrector = FrequencyCorrector(scaling_factor=0.971)
         assert corrector.scaling_factor == 0.971
+        assert corrector.frequency_factor == 0.971
+        assert corrector.zpe_factor == 1.0
         assert corrector.handle_imaginary == "abs"
         
         # Test with different imaginary handling
@@ -256,7 +255,7 @@ class TestFrequencyCorrector:
             frequencies=[100.0, 200.0, 300.0],
             num_frequencies=3,
             scf_energy=-100.0,
-            zero_point_energy=10.0,
+            zero_point_energy=0.01,
         )
         
         corrector = FrequencyCorrector(scaling_factor=0.9)
@@ -275,8 +274,30 @@ class TestFrequencyCorrector:
         assert result.scaled_frequencies[2] == 270.0  # 300 * 0.9
         
         # Check other properties
-        assert result.scaled_zpe == 10.0  # ZPE should not be scaled
+        assert result.scaled_zpe == 0.01
         assert result.total_energy is not None
+
+    def test_correct_frequencies_with_separate_zpe_factor(self):
+        """Test independent frequency and ZPE scaling factors."""
+        qdata = QuantumData(
+            filename="test.out",
+            convergence_status=True,
+            atoms=[Atom("C", 0.0, 0.0, 0.0)],
+            num_atoms=1,
+            frequencies=[100.0, 200.0],
+            num_frequencies=2,
+            scf_energy=-100.0,
+            zero_point_energy=0.01,
+        )
+
+        corrector = FrequencyCorrector(Frequency_factor=0.9, zpe_factor=0.5)
+        result = corrector.correct_frequencies(qdata)
+
+        assert result.frequency_factor == 0.9
+        assert result.scaling_factor == 0.9
+        assert result.zpe_factor == 0.5
+        assert result.scaled_frequencies == [90.0, 180.0]
+        assert result.scaled_zpe == 0.005
     
     def test_correct_frequencies_with_imaginary(self):
         """Test frequency correction with imaginary frequencies."""
@@ -437,8 +458,8 @@ class TestCreateMoleculeObject:
             zero_point_energy=10.0,
         )
         
-        # Create CorrectionResult – note: __post_init__ recomputes total_energy
-        # from SCF (-100 Hartree) and ZPE (10 kcal/mol), so total_energy won't be 500.0
+        # Create CorrectionResult; __post_init__ recomputes total_energy
+        # from SCF and ZPE in Hartree.
         result = CorrectionResult(
             original_data=qdata,
             scaled_frequencies=[90.0, 180.0],  # 0.9 scaling
@@ -458,9 +479,9 @@ class TestCreateMoleculeObject:
         
         # Should use corrected frequencies
         assert molecule["frequencies"] == [90.0, 180.0]
-        # total_energy is SCF + ZPE: -100 * 627.509474 + 10 ≈ -62740.9474
+        # total_energy is (SCF + ZPE) converted from Hartree.
         assert molecule["total_energy"] is not None
-        expected_total = -100.0 * 627.509474 + 10.0
+        expected_total = (-100.0 + 0.01) * 627.509474
         assert abs(molecule["total_energy"] - expected_total) < 0.1
     
     def test_create_molecule_object_imaginary_frequencies(self):

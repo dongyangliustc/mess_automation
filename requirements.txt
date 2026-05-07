@@ -14,7 +14,6 @@ Jinja2>=3.0.0
 pint>=0.18.0  # For unit conversion
 
 # Command line interface
-argparse>=1.4.0  # Standard library, but listed for completeness
 colorama>=0.4.4  # Optional for colored output
 
 # Testing and development
@@ -35,4 +34,4 @@ numpydoc>=1.2.0
 # seaborn>=0.11.0   # For statistical plots (optional)
 
 # Minimum Python version
-python>=3.8
+# Requires Python 3.8+
