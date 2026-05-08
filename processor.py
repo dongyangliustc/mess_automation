@@ -43,6 +43,73 @@ def get_first_defined(*values: Optional[float], default: float) -> float:
     return default
 
 
+def _get_mapping_value(mapping: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+    """Return the first non-None value from a mapping."""
+    for key in keys:
+        if key in mapping and mapping[key] is not None:
+            return mapping[key]
+    return default
+
+
+def compute_bimolecular_energy(
+    fragments: List[Dict[str, Any]],
+    EleEnergy_baseline: float = 0.0,
+    energy_units: str = "hartree",
+) -> float:
+    """
+    Compute bimolecular node energy in kcal/mol.
+
+    The fragment absolute totals are summed first, then the global electronic
+    energy baseline is subtracted exactly once.
+    """
+    total_hartree = 0.0
+    baseline_hartree = UnitConverter.convert_energy(
+        float(EleEnergy_baseline), energy_units, "hartree"
+    )
+
+    for fragment in fragments:
+        name = fragment.get("name", "FRAG")
+        qdata = fragment.get("qdata") or fragment.get("quantum_data")
+        correction = fragment.get("correction")
+
+        ele_energy = _get_mapping_value(
+            fragment,
+            "EleEnergy", "ele_energy", "electronic_energy", "scf_energy_hartree",
+        )
+        if ele_energy is None and qdata is not None:
+            ele_energy = qdata.scf_energy
+        if ele_energy is None:
+            raise ValueError(f"Bimolecular fragment '{name}' has no electronic energy")
+
+        ele_energy_hartree = UnitConverter.convert_energy(
+            float(ele_energy), energy_units, "hartree"
+        )
+
+        scaled_zpe_hartree = None
+        if correction is not None and correction.scaled_zpe is not None:
+            scaled_zpe_hartree = correction.scaled_zpe
+        elif qdata is not None and qdata.zero_point_energy is not None:
+            scaled_zpe_hartree = qdata.zero_point_energy
+
+        fragment_total_hartree = ele_energy_hartree + (scaled_zpe_hartree or 0.0)
+        total_hartree += fragment_total_hartree
+
+        logger.info(
+            f"  Fragment {name}: EleEnergy={ele_energy_hartree:.8f} Ha, "
+            f"scaled_zpe={(scaled_zpe_hartree or 0.0):.8f} Ha, "
+            f"fragment_total={fragment_total_hartree:.8f} Ha"
+        )
+
+    bimol_hartree = total_hartree - baseline_hartree
+    bimol_kcal = UnitConverter.convert_energy(bimol_hartree, "hartree", "kcal/mol")
+    logger.info(
+        f"Bimolecular energy: fragments_total={total_hartree:.8f} Ha, "
+        f"EleEnergy_baseline={baseline_hartree:.8f} Ha, "
+        f"GroundEnergy={bimol_kcal:.6f} kcal/mol"
+    )
+    return bimol_kcal
+
+
 @dataclass
 class CorrectionResult:
     """Container for corrected quantum chemistry data."""
@@ -198,7 +265,7 @@ class CorrectionResult:
             line = "  " + " ".join(f"{f:>10.2f}" for f in chunk)
             lines.append(line)
         
-        return "\n".join(lines) + "\n"
+        return "\n".join(lines)
     
 
 

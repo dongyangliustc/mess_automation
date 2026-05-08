@@ -7,6 +7,9 @@ input:
     - "examples/example_data/reactant.out"
     - "examples/example_data/ts.out"
     - "examples/example_data/product.out"
+    - "examples/example_data/F1.out"
+    - "examples/example_data/F2.out"
+    - "examples/example_data/ts0.out"
 
 output:
   mess_input: "test_mess_input.inp"
@@ -32,8 +35,29 @@ mess_global:
 
 # Reaction network for testing
 reaction_network:
-  Energy_baseline: -418.4407413  # Hartree，需要包含zpe能量
+  EleEnergy_baseline: -418.4407413  # Hartree
   species:
+    - name: "Bimol_1"
+      type: "bimolecular"
+      fragments:
+        - name: "F1"
+          gaussian_file: "examples/example_data/F1.out"
+          symmetry_factor: 1.0
+          EleEnergy: -194.2033687
+
+        - name: "F2"
+          gaussian_file: "examples/example_data/F2.out"
+          symmetry_factor: 1.0
+          EleEnergy: -224.3562084
+
+    - name: "TS0"
+      type: "barrier"
+      gaussian_file: "examples/example_data/ts0.out"
+      symmetry_factor: 1.0
+      EleEnergy: -418.5518886
+      from_species: "Bimol_1"
+      to_species: "R"
+
     - name: "R"
       type: "well"
       gaussian_file: "examples/example_data/reactant.out"

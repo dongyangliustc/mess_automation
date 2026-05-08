@@ -1,56 +1,83 @@
 !************************************
 {% if species.type == "bimolecular" %}
-  Bimolecular		{{ species.name }}		# {{ species.comment }}
-{% elif species.type == "well" %}
-      Well     {{ species.name }}  			# {{ species.comment }}
-{% elif species.type == "RRHO" or species.method is defined and species.method == "RRHO" %}
-      Well     {{ species.name }}
+    Bimolecular   {{ species.name }}{% if species.comment %}   # {{ species.comment }}{% endif %}
+{% if species.stoichiometry is defined and species.stoichiometry is not none %}
+      Stoichiometry  {{ species.stoichiometry }}
 {% endif %}
-    Species
-      {{ species.method if species.method is defined else "RRHO" }}
-{% if species.type == "bimolecular" %}
 {% for fragment in species.fragments %}
-Fragment {{ fragment.name }}
-{{ fragment.method }}     
-{{ fragment.geometry_string }}
-{% if fragment.core_defined %}
-	Core 	{{ fragment.core_type }}
-		SymmetryFactor    {{ fragment.symmetry_factor }}
-	End
+      Fragment   {{ fragment.name }}
+        {{ fragment.method if fragment.method is defined else "RRHO" }}
+{% if fragment.geometry_string is defined and fragment.geometry_string %}
+{{ fragment.geometry_string | indent(8, true) }}
+{% elif fragment.atoms is defined and fragment.atoms %}
+        Geometry[angstrom]              {{ fragment.num_atoms }}
+{% for atom in fragment.atoms %}
+{{ atom.symbol }}                 {{ atom.x }}   {{ atom.y }}   {{ atom.z }}
+{% endfor %}
 {% endif %}
-    {{ fragment.frequencies_string }}
-{% if fragment.zero_point_energy is defined and fragment.zero_point_energy is not none %}
-  ZeroEnergy[kcal/mol]             {{ fragment.zero_point_energy }}
+{% if fragment.core_defined is defined and fragment.core_defined %}
+        Core {{ fragment.core_type }}
+          SymmetryFactor    {{ fragment.symmetry_factor if fragment.symmetry_factor is defined else 1.0 }}
+        End
+{% endif %}
+{% if fragment.frequencies_string is defined and fragment.frequencies_string %}
+{{ fragment.frequencies_string | indent(8, true) }}
+{% elif fragment.frequencies is defined and fragment.frequencies %}
+        Frequencies[1/cm]     {{ fragment.frequencies|length }}
+{% for freq in fragment.frequencies %}
+        {{ freq }}
+{% endfor %}
 {% endif %}
 {% if fragment.electronic_levels is defined and fragment.electronic_levels %}
-  ElectronicLevels[1/cm]                      {{ fragment.electronic_levels|length }}
+        ElectronicLevels[1/cm]       {{ fragment.electronic_levels|length }}
 {% for level in fragment.electronic_levels %}
-  {{ level.energy }}   {{ level.degeneracy }}
+          {{ "%.1f"|format(level.energy) }}   {{ "%.1f"|format(level.degeneracy) }}
 {% endfor %}
 {% endif %}
-End 
+      End
 {% endfor %}
 {% if species.ground_energy is defined and species.ground_energy is not none %}
-GroundEnergy[kcal/mol] {{ species.ground_energy }}
+      GroundEnergy[kcal/mol]    {{ "%.4f"|format(species.ground_energy) }}
+{% elif species.GroundEnergy is defined and species.GroundEnergy is not none %}
+      GroundEnergy[kcal/mol]    {{ "%.4f"|format(species.GroundEnergy) }}
 {% endif %}
+    End
 {% else %}
-{% if species.geometry_string is defined %}{{ species.geometry_string }}{% endif %}
-{% if species.core_defined is defined and species.core_defined %}
-	Core 	{{ species.core_type }}
-		SymmetryFactor    {{ species.symmetry_factor if species.symmetry_factor is defined else 1.0 }}
-	End
+{% if species.type == "well" or species.type == "reactant" or species.type == "product" %}
+    Well   {{ species.name }}{% if species.comment %}   # {{ species.comment }}{% endif %}
+{% elif species.type == "RRHO" or species.method is defined and species.method == "RRHO" %}
+    Well   {{ species.name }}
 {% endif %}
-{% if species.frequencies_string is defined %}    {{ species.frequencies_string }}{% endif %}
-{% if species.atoms is defined and species.atoms and not (species.geometry_string is defined) %}
+      Species
+        {{ species.method if species.method is defined else "RRHO" }}
+{% if species.stoichiometry is defined and species.stoichiometry is not none %}
+      Stoichiometry  {{ species.stoichiometry }}
+{% endif %}
+{% if species.atoms is defined and species.atoms %}
       Geometry[angstrom]              {{ species.num_atoms }}
 {% for atom in species.atoms %}
 {{ atom.symbol }}                 {{ atom.x }}   {{ atom.y }}   {{ atom.z }}
 {% endfor %}
+{% elif species.geometry_string is defined %}
+{{ species.geometry_string }}
 {% endif %}
-{% if species.frequencies is defined and species.frequencies and not (species.frequencies_string is defined) %}
+{% if species.core_defined is defined and species.core_defined %}
+      Core {{ species.core_type }}
+        SymmetryFactor    {{ species.symmetry_factor if species.symmetry_factor is defined else 1.0 }}
+      End
+{% endif %}
+{% if species.frequencies_string is defined and species.frequencies_string %}
+      {{ species.frequencies_string }}
+{% elif species.frequencies is defined and species.frequencies %}
       Frequencies[1/cm]     {{ species.frequencies|length }}
 {% for freq in species.frequencies %}
       {{ freq }}
+{% endfor %}
+{% endif %}
+{% if species.electronic_levels is defined and species.electronic_levels %}
+      ElectronicLevels[1/cm]       {{ species.electronic_levels|length }}
+{% for level in species.electronic_levels %}
+        {{ "%.1f"|format(level.energy) }}   {{ "%.1f"|format(level.degeneracy) }}
 {% endfor %}
 {% endif %}
 {% if species.ZeroEnergy is defined and species.ZeroEnergy is not none %}
@@ -62,12 +89,6 @@ GroundEnergy[kcal/mol] {{ species.ground_energy }}
 {% elif species.zero_point_energy_kcal_mol is defined and species.zero_point_energy_kcal_mol is not none %}
       ZeroEnergy[kcal/mol]        {{ "%.4f"|format(species.zero_point_energy_kcal_mol) }}
 {% endif %}
-{% if species.electronic_levels is defined and species.electronic_levels %}
-  ElectronicLevels[1/cm]                      {{ species.electronic_levels|length }}
-{% for level in species.electronic_levels %}
-  {{ level.energy }}   {{ level.degeneracy }}
-{% endfor %}
-{% endif %}
-End
+    End
 {% endif %}
 !

@@ -212,6 +212,60 @@ class MESSAssembler:
             barrier.reverse_barrier = (barrier.quantum_data.scf_energy - product.quantum_data.scf_energy) * 627.509474
 
     def _prepare_species_data(self, species: MESSSpeciesConfig) -> Dict[str, Any]:
+        if species.type == "bimolecular":
+            ground_energy = species.GroundEnergy
+            if ground_energy is None:
+                ground_energy = species.ZeroEnergy
+
+            mol = {
+                "name": species.name,
+                "type": species.type,
+                "comment": species.comment,
+                "method": species.method,
+                "stoichiometry": species.stoichiometry,
+                "GroundEnergy": ground_energy,
+                "ground_energy": ground_energy,
+                "ZeroEnergy": species.ZeroEnergy,
+                "fragments": [],
+            }
+
+            for frag_data in species.fragments:
+                qdata = frag_data.get("quantum_data") or frag_data.get("qdata")
+                correction = frag_data.get("correction")
+
+                if frag_data.get("geometry_string"):
+                    geometry_string = frag_data["geometry_string"]
+                elif qdata is not None:
+                    geometry_string = qdata.get_geometry_string()
+                else:
+                    geometry_string = ""
+
+                if frag_data.get("frequencies_string"):
+                    frequencies_string = frag_data["frequencies_string"]
+                elif correction is not None and correction.success:
+                    frequencies_string = correction.get_frequencies_string()
+                elif qdata is not None:
+                    frequencies_string = qdata.get_frequencies_string()
+                else:
+                    frequencies_string = ""
+
+                frag = {
+                    "name": frag_data.get("name", "FRAG"),
+                    "method": frag_data.get("method", "RRHO"),
+                    "geometry_string": geometry_string,
+                    "frequencies_string": frequencies_string,
+                    "electronic_levels": frag_data.get(
+                        "electronic_levels",
+                        [{"energy": 0.0, "degeneracy": 1.0}],
+                    ),
+                    "core_type": frag_data.get("core_type", "RigidRotor"),
+                    "symmetry_factor": frag_data.get("symmetry_factor", 1.0),
+                    "core_defined": frag_data.get("core_defined", True),
+                }
+                mol["fragments"].append(frag)
+
+            return mol
+
         # Use ZeroEnergy as the authoritative energy
         mol = create_molecule_object(
             species.quantum_data, species.correction,

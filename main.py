@@ -22,7 +22,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     # Try package imports first
     from .parser import GaussianParser, QuantumData
-    from .processor import FrequencyCorrector, CorrectionResult, UnitConverter, create_molecule_object
+    from .processor import (
+        FrequencyCorrector, CorrectionResult, UnitConverter,
+        create_molecule_object, compute_bimolecular_energy
+    )
     from .assembler import MESSAssembler, MESSGlobalSettings, MESSModelSettings, MESSSpeciesConfig, MESSBarrierConfig
     from .exceptions import (
         ConfigurationError, ConfigFileNotFoundError, ConfigValidationError,
@@ -39,7 +42,10 @@ except ImportError:
         import assembler
         
         from parser import GaussianParser, QuantumData
-        from processor import FrequencyCorrector, CorrectionResult, UnitConverter, create_molecule_object
+        from processor import (
+            FrequencyCorrector, CorrectionResult, UnitConverter,
+            create_molecule_object, compute_bimolecular_energy
+        )
         from assembler import MESSAssembler, MESSGlobalSettings, MESSModelSettings, MESSSpeciesConfig, MESSBarrierConfig
         
         # Try to import custom modules
@@ -214,8 +220,13 @@ def create_species_and_barriers(
 
     # ---------- 读取全局能量和 ZPE 校正参数 ----------
     _, zpe_factor = get_quantum_factors(quantum_cfg)
-    energy_baseline = float(
-        get_config_value(network_config, "Energy_baseline", "energy_baseline", default=0.0)
+    ele_energy_baseline = float(
+        get_config_value(
+            network_config,
+            "EleEnergy_baseline", "ele_energy_baseline",
+            "Energy_baseline", "energy_baseline",
+            default=0.0,
+        )
     )
 
     HARTREE_TO_KCAL = 627.509474
@@ -261,7 +272,7 @@ def create_species_and_barriers(
             )
             return 0.0
         ele_energy = float(ele_energy)
-        corrected_ele_energy = ele_energy - energy_baseline
+        corrected_ele_energy = ele_energy - ele_energy_baseline
 
         # 提取校正后的 ZPE（Hartree）
         scaled_zpe = extract_scaled_zpe(qdata_dict)
@@ -275,7 +286,7 @@ def create_species_and_barriers(
             total_hartree = corrected_ele_energy + scaled_zpe
             logger.info(
                 f"  {species_def.get('name')}: EleEnergy={ele_energy:.8f} Ha, "
-                f"EleEnergy_baseline={energy_baseline:.8f} Ha, "
+                f"EleEnergy_baseline={ele_energy_baseline:.8f} Ha, "
                 f"corrected_EleEnergy={corrected_ele_energy:.8f} Ha, "
                 f"scaled_zpe={scaled_zpe:.8f} Ha → "
                 f"ZeroEnergy={total_hartree * HARTREE_TO_KCAL:.6f} kcal/mol"
@@ -288,7 +299,81 @@ def create_species_and_barriers(
     for species_def in species_list:
         name = species_def.get("name")
         species_type = str(species_def.get("type", "well")).lower()
+        if not name:
+            continue
         gaussian_file = get_config_value(species_def, "gaussian_file", "file", "path")
+        if species_type == "bimolecular":
+            fragment_configs = []
+            for fragment_def in species_def.get("fragments", []) or []:
+                fragment_name = fragment_def.get("name", "FRAG")
+                fragment_file = get_config_value(fragment_def, "gaussian_file", "file", "path")
+                if not fragment_file:
+                    logger.warning(f"Bimolecular fragment {fragment_name} missing gaussian_file")
+                    continue
+
+                fragment_qdata = find_quantum_data(fragment_file, quantum_results)
+                if fragment_qdata is None:
+                    logger.warning(
+                        f"No quantum data found for fragment {fragment_file} "
+                        f"(bimolecular species: {name})"
+                    )
+                    continue
+
+                fragment_config = dict(fragment_def)
+                fragment_config.update({
+                    "qdata": fragment_qdata["qdata"],
+                    "quantum_data": fragment_qdata["qdata"],
+                    "correction": fragment_qdata["correction"],
+                    "method": fragment_def.get("method", "RRHO"),
+                    "core_type": fragment_def.get("core_type", "RigidRotor"),
+                    "core_defined": fragment_def.get("core_defined", True),
+                    "electronic_levels": fragment_def.get(
+                        "electronic_levels",
+                        [{"energy": 0.0, "degeneracy": 1.0}],
+                    ),
+                    "symmetry_factor": fragment_def.get("symmetry_factor", 1.0),
+                })
+                fragment_configs.append(fragment_config)
+
+            if not fragment_configs:
+                logger.warning(f"No valid fragments found for bimolecular species {name}")
+                continue
+
+            try:
+                ground_energy = compute_bimolecular_energy(
+                    fragment_configs,
+                    EleEnergy_baseline=ele_energy_baseline,
+                    energy_units="hartree",
+                )
+            except Exception as exc:
+                logger.error(f"Failed to compute bimolecular energy for {name}: {exc}")
+                continue
+
+            species_config = MESSSpeciesConfig(
+                name=name,
+                type=species_type,
+                quantum_data=fragment_configs[0]["quantum_data"],
+                correction=fragment_configs[0]["correction"],
+                ZeroEnergy=ground_energy,
+                GroundEnergy=ground_energy,
+                stoichiometry=species_def.get("stoichiometry"),
+                symmetry_factor=species_def.get("symmetry_factor", 1.0),
+                comment=species_def.get("comment", ""),
+                method=species_def.get("method", "RRHO"),
+                core_type=species_def.get("core_type", "RigidRotor"),
+                electronic_levels=species_def.get(
+                    "electronic_levels",
+                    [{"energy": 0.0, "degeneracy": 1.0}],
+                ),
+                fragments=fragment_configs,
+            )
+            species_configs[name] = species_config
+            logger.info(
+                f"Created bimolecular species {name} with "
+                f"{len(fragment_configs)} fragments; GroundEnergy={ground_energy:.6f} kcal/mol"
+            )
+            continue
+
         if not name or not gaussian_file:
             continue
 
@@ -538,16 +623,24 @@ def process_quantum_data(
     
     # Determine files to process
     files_to_process = []
-    
+    seen_files = set()
+
+    def add_file_to_process(file_path: Union[str, Path]):
+        path = Path(file_path)
+        key = str(path)
+        if key in seen_files:
+            return
+        if path.exists():
+            files_to_process.append(path)
+            seen_files.add(key)
+        else:
+            logger.warning(f"File not found: {file_path}")
+
     # Check for explicit file list
     explicit_files = input_config.get("files", [])
     for file_path in explicit_files:
-        path = Path(file_path)
-        if path.exists():
-            files_to_process.append(path)
-        else:
-            logger.warning(f"File not found: {file_path}")
-    
+        add_file_to_process(file_path)
+
     # Check for directory pattern
     gaussian_outputs = input_config.get("gaussian_outputs")
     if gaussian_outputs and not explicit_files:
@@ -558,10 +651,23 @@ def process_quantum_data(
         # Find files
         if directory.exists():
             files = list(directory.glob(file_pattern))
-            files_to_process.extend(files)
+            for file_path in files:
+                add_file_to_process(file_path)
             logger.info(f"Found {len(files)} files matching pattern: {pattern}")
         else:
             logger.warning(f"Directory not found: {directory}")
+
+    # Also process files referenced directly by reaction_network, including
+    # bimolecular fragments that are not listed under input.files.
+    network_config = config.get("reaction_network", {})
+    for species_def in network_config.get("species", []):
+        gaussian_file = get_config_value(species_def, "gaussian_file", "file", "path")
+        if gaussian_file:
+            add_file_to_process(gaussian_file)
+        for fragment_def in species_def.get("fragments", []) or []:
+            fragment_file = get_config_value(fragment_def, "gaussian_file", "file", "path")
+            if fragment_file:
+                add_file_to_process(fragment_file)
     
     if not files_to_process:
         logger.error("No files found to process")
@@ -723,7 +829,27 @@ def validate_config(config: Dict[str, Any]) -> tuple:
     species_list = network_cfg.get("species", [])
     species_names = {s["name"] for s in species_list if "name" in s}
     for sp in species_list:
-        if str(sp.get("type", "")).lower() == "barrier":
+        species_type = str(sp.get("type", "")).lower()
+        if species_type == "bimolecular":
+            fragments = sp.get("fragments") or []
+            if len(fragments) < 2:
+                errors.append(
+                    f"Bimolecular species '{sp.get('name')}' must define at least two fragments"
+                )
+            for fragment in fragments:
+                if not get_config_value(fragment, "gaussian_file", "file", "path"):
+                    errors.append(
+                        f"Bimolecular species '{sp.get('name')}' has a fragment without gaussian_file"
+                    )
+                if get_config_value(
+                    fragment,
+                    "EleEnergy", "ele_energy", "electronic_energy", "scf_energy_hartree",
+                ) is None:
+                    errors.append(
+                        f"Bimolecular fragment '{fragment.get('name')}' is missing EleEnergy"
+                    )
+
+        if species_type == "barrier":
             connects = sp.get("connects") or []
             from_sp = sp.get("from_species")
             to_sp = sp.get("to_species")

@@ -28,7 +28,7 @@
       {{ freq }}
 {% endfor %}
 {% endif %}
-{% if barrier.electronic_levels is defined and barrier.electronic_levels %}
+{%- if barrier.electronic_levels is defined and barrier.electronic_levels %}
       ElectronicLevels[1/cm]       {{ barrier.electronic_levels|length }}
 {% for level in barrier.electronic_levels %}
         {{ "%.1f"|format(level.energy) }}   {{ "%.1f"|format(level.degeneracy) }}
